@@ -605,6 +605,17 @@ nv_test_file(char *path)
     printf("\n");
   }
   
+  // cache integration test
+  {
+    NV_Cache *cache = nv_cache_alloc();
+    NV_File *cf = nv_cache_load_from_string(cache, file_data, file_path, NV_SourceKind_File);
+    if(cf != 0)
+    {
+      printf("Cache: %llu entries, %llu types loaded\n", cache->count, cf->type_count);
+    }
+    nv_cache_release(cache);
+  }
+  
   printf("\n=== Done ===\n");
   arena_release(arena);
 }
@@ -618,6 +629,111 @@ entry_point(CmdLine *cmdline)
   // run built-in tests
   B32 builtin_passed = nv_test_validate_builtin();
   B32 semantic_passed = nv_test_semantic_model();
+  
+  // T3: expression translation
+  {
+    Arena *a = arena_alloc();
+    printf("=== Expression translation test ===\n");
+    B32 p = 1;
+    
+    String8 targs[] = { str8_lit("int"), str8_lit("float") };
+    
+    // $T1 substitution
+    String8 e1 = nv_translate_expr(a, str8_lit("cast($T1 *)ptr"), targs, 2);
+    if(str8_match(e1, str8_lit("cast(int *)ptr"), 0)) { printf("OK: $T1 substitution\n"); }
+    else { printf("FAIL: $T1 sub = '%.*s'\n", (int)e1.size, e1.str); p = 0; }
+    
+    // C-style cast translation
+    String8 e2 = nv_translate_expr(a, str8_lit("(wchar_t *)Data"), targs, 0);
+    if(str8_match(e2, str8_lit("cast(wchar_t *)Data"), 0)) { printf("OK: C-cast → cast()\n"); }
+    else { printf("FAIL: C-cast = '%.*s'\n", (int)e2.size, e2.str); p = 0; }
+    
+    // passthrough
+    String8 e3 = nv_translate_expr(a, str8_lit("_Mypair._Myval2._Mysize"), targs, 0);
+    if(str8_match(e3, str8_lit("_Mypair._Myval2._Mysize"), 0)) { printf("OK: passthrough\n"); }
+    else { printf("FAIL: passthrough = '%.*s'\n", (int)e3.size, e3.str); p = 0; }
+    
+    // format specifier
+    String8 f1 = nv_apply_format_spec(a, str8_lit("value"), str8_lit("x"));
+    if(str8_match(f1, str8_lit("hex(value)"), 0)) { printf("OK: ,x → hex()\n"); }
+    else { printf("FAIL: ,x = '%.*s'\n", (int)f1.size, f1.str); p = 0; }
+    
+    printf("=== Expression test %s ===\n\n", p ? "PASSED" : "FAILED");
+    builtin_passed = builtin_passed && p;
+    arena_release(a);
+  }
+  
+  // T4: expansion
+  {
+    Arena *a = arena_alloc();
+    printf("=== Expansion test ===\n");
+    B32 p = 1;
+    
+    String8 xml = str8((U8 *)nv_test_xml, sizeof(nv_test_xml) - 1);
+    NV_XMLParseResult xr = nv_xml_parse_from_string(a, xml);
+    NV_File *file = nv_file_from_xml(a, xr.root, str8_lit("test"));
+    
+    // TestArray: should produce an array() expression
+    NV_TypeDef *arr_td = nv_type_def_from_type_name(file, str8_lit("TestArray<*>"));
+    if(arr_td == 0) { arr_td = file->first_type->next; } // fallback
+    if(arr_td != 0 && arr_td->expand != 0)
+    {
+      String8 targs[] = { str8_lit("int") };
+      NV_OutputItemList items = nv_expand_items_from_expand(a, arr_td->expand, targs, 1);
+      if(items.count >= 1) { printf("OK: ArrayItems expansion → %llu items\n", items.count); }
+      else { printf("FAIL: ArrayItems produced 0 items\n"); p = 0; }
+    }
+    
+    // TestCustom: CustomListItems should produce items
+    NV_TypeDef *cust_td = nv_type_def_from_type_name(file, str8_lit("TestCustom"));
+    if(cust_td != 0 && cust_td->expand != 0)
+    {
+      NV_OutputItemList items = nv_expand_items_from_expand(a, cust_td->expand, 0, 0);
+      if(items.count >= 1) { printf("OK: CustomListItems → %llu items\n", items.count); }
+      else { printf("FAIL: CustomListItems produced 0 items\n"); p = 0; }
+    }
+    
+    // TestSynthetic: should produce synthetic items
+    NV_TypeDef *synth_td = nv_type_def_from_type_name(file, str8_lit("TestSynthetic"));
+    if(synth_td != 0 && synth_td->expand != 0)
+    {
+      NV_OutputItemList items = nv_expand_items_from_expand(a, synth_td->expand, 0, 0);
+      if(items.count >= 2) { printf("OK: Synthetic+ExpandedItem → %llu items\n", items.count); }
+      else { printf("FAIL: Synthetic produced %llu items\n", items.count); p = 0; }
+    }
+    
+    printf("=== Expansion test %s ===\n\n", p ? "PASSED" : "FAILED");
+    builtin_passed = builtin_passed && p;
+    arena_release(a);
+  }
+  
+  // T6: cache
+  {
+    Arena *a = arena_alloc();
+    printf("=== Cache test ===\n");
+    B32 p = 1;
+    
+    NV_Cache *cache = nv_cache_alloc();
+    NV_File *f = nv_cache_load_from_string(cache, str8((U8 *)nv_test_xml, sizeof(nv_test_xml) - 1), str8_lit("inline"), NV_SourceKind_Embedded);
+    if(f != 0 && f->type_count == 7) { printf("OK: cache load from string: %llu types\n", f->type_count); }
+    else { printf("FAIL: cache load\n"); p = 0; }
+    
+    NV_TypeMatch match = {0};
+    NV_TypeDef *found = nv_cache_find_type(cache, str8_lit("TestSimple"), &match);
+    if(found != 0 && match.matched) { printf("OK: cache find TestSimple\n"); }
+    else { printf("FAIL: cache find\n"); p = 0; }
+    
+    NV_TypeDef *nf = nv_cache_find_type(cache, str8_lit("NonExistent"), 0);
+    if(nf == 0) { printf("OK: cache find non-existent → null\n"); }
+    else { printf("FAIL: should be null\n"); p = 0; }
+    
+    nv_cache_release(cache);
+    
+    printf("=== Cache test %s ===\n\n", p ? "PASSED" : "FAILED");
+    builtin_passed = builtin_passed && p;
+    arena_release(a);
+  }
+  
   builtin_passed = builtin_passed && semantic_passed;
   
   // if a file path was provided, parse it too
