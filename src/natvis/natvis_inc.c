@@ -9,3 +9,10 @@
 
 #include "natvis_parse.c"
 #include "natvis_types.c"
+#include "natvis_eval.c"
+#include "natvis_expand.c"
+#include "natvis_cache.c"
+
+#if !defined(NATVIS_STANDALONE)
+#include "natvis_integration.c"
+#endif
