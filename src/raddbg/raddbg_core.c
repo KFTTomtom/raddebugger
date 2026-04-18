@@ -10072,6 +10072,7 @@ rd_init(CmdLine *cmdln)
   rd_state->num_frames_requested = 2;
   rd_state->seconds_until_autosave = 0.5f;
   rd_state->eval_cache = e_cache_alloc();
+  rd_state->natvis_state = nv_state_alloc();
   for(U64 idx = 0; idx < ArrayCount(rd_state->cmds_arenas); idx += 1)
   {
     rd_state->cmds_arenas[idx] = arena_alloc();
@@ -11973,6 +11974,46 @@ rd_frame(void)
     }
     
     ////////////////////////////
+    //- rjf: load .natvis files and register auto-hooks from NatVis
+    //
+    if(rd_state->use_natvis && rd_state->natvis_state != 0)
+    {
+      // scan for .natvis files alongside loaded modules
+      for(U64 module_idx = 0; module_idx < all_modules.count; module_idx += 1)
+      {
+        CTRL_Entity *m = all_modules.v[module_idx];
+        if(m != 0 && m->string.size > 0)
+        {
+          String8 dir = str8_chop_last_slash(m->string);
+          if(dir.size > 0)
+          {
+            nv_state_load_directory(rd_state->natvis_state, dir);
+          }
+        }
+      }
+      
+      // load from user-configured natvis_path entries
+      {
+        CFG_NodePtrList natvis_paths = cfg_node_top_level_list_from_string(scratch.arena, str8_lit("natvis_path"));
+        for(CFG_NodePtrNode *n = natvis_paths.first; n != 0; n = n->next)
+        {
+          String8 path = n->v->first->string;
+          if(path.size > 0)
+          {
+            nv_state_load_directory(rd_state->natvis_state, path);
+          }
+        }
+      }
+      
+      // hot-reload changed files
+      nv_check_reload(rd_state->natvis_state);
+      
+      // register NatVis type visualizers as auto-hooks (after user type_views,
+      // so user definitions take priority)
+      nv_register_auto_hooks(rd_state->natvis_state, scratch.arena, auto_hook_map);
+    }
+    
+    ////////////////////////////
     //- rjf: build IR evaluation context
     //
     E_IRCtx *ir_ctx = push_array(scratch.arena, E_IRCtx, 1);
@@ -12013,6 +12054,7 @@ rd_frame(void)
     rd_state->alt_menu_bar_enabled = rd_setting_b32_from_name(str8_lit("focus_menu_bar_with_alt"));
     rd_state->use_default_stl_type_views = rd_setting_b32_from_name(str8_lit("use_default_stl_type_views"));
     rd_state->use_default_ue_type_views = rd_setting_b32_from_name(str8_lit("use_default_ue_type_views"));
+    rd_state->use_natvis = rd_setting_b32_from_name(str8_lit("use_natvis"));
     
     ////////////////////////////
     //- rjf: autosave if needed

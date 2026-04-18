@@ -321,6 +321,8 @@ RD_VocabTable:
         @default(1) use_default_stl_type_views: bool,
       @display_name('Use Default Unreal Engine Type Visualizers') @description("Enables the built-in type views for Unreal Engine types.")
         @default(1) use_default_ue_type_views: bool,
+      @display_name('Enable NatVis Support') @description("Loads .natvis files from module directories and configured search paths to provide automatic type visualization.")
+        @default(1) use_natvis: bool,
       
       //- rjf: theme
       @default("None") @display_name('Project Theme') @description("The project's theme, which describes all colors used throughout the UI, and can override the user's theme.")
@@ -705,6 +707,12 @@ RD_VocabTable:
   {
     type_view,
     ```@collection_commands(add_type_view) @row_commands(remove_cfg) x:{'type':expr_string, 'expr':expr_string}```,
+  }
+  
+  //- rjf: natvis search paths
+  {
+    natvis_path,
+    ```@collection_commands(add_natvis_path) @row_commands(remove_cfg) x:{@no_relativize path}```,
   }
   
   //- rjf: recent projects
