@@ -279,6 +279,10 @@ RD_VocabTable:
       @default(1) @display_name('Breakpoint Glow') @description("Controls whether or not a glowing effect is drawn on breakpoints in source and disassembly views.")
         'breakpoint_glow': bool,
       
+      //- rjf: cache line markers
+      @default(0) @display_name('Cache Line Markers') @description("Controls whether or not CPU cache line boundaries (64 bytes) are drawn in watch view expansions. Useful for memory layout optimization.")
+        'cache_line_markers': bool,
+      
       //- rjf: occluding background settings
       @default(0) @display_name('Opaque Backgrounds') @description("Controls whether or not all floating background colors are forced to be fully opaque.")
         'opaque_backgrounds': bool,
