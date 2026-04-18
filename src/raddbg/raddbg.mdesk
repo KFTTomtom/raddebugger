@@ -1528,18 +1528,18 @@ RD_ThemePresetTable:
       theme_color: {tags:"good_pop weak text",                     value: 0xe3f5d3ff }
       theme_color: {tags:"bad_pop background",                     value: 0x803425ff }
       theme_color: {tags:"bad_pop hover",                          value: 0xff825cff }
-      theme_color: {tags:"code_default",                           value: 0xcbcbcbff }
-      theme_color: {tags:"code_symbol",                            value: 0x42a2cfff }
-      theme_color: {tags:"code_type",                              value: 0xfec746ff }
-      theme_color: {tags:"code_local",                             value: 0x98bc80ff }
+      theme_color: {tags:"code_default",                           value: 0xBDB76Bff }
+      theme_color: {tags:"code_symbol",                            value: 0xFF8000ff }
+      theme_color: {tags:"code_type",                              value: 0xFFD700ff }
+      theme_color: {tags:"code_local",                             value: 0xdad7b9ff }
       theme_color: {tags:"code_register",                          value: 0xb7afd5ff }
-      theme_color: {tags:"code_keyword",                           value: 0xb38d4cff }
-      theme_color: {tags:"code_delimiter_or_operator",             value: 0x767676ff }
-      theme_color: {tags:"code_numeric",                           value: 0x98abb1ff }
-      theme_color: {tags:"code_numeric_alt_digit_group",           value: 0x738287ff }
-      theme_color: {tags:"code_string",                            value: 0x98abb1ff }
-      theme_color: {tags:"code_meta",                              value: 0xd96759ff }
-      theme_color: {tags:"code_comment",                           value: 0x717171ff }
+      theme_color: {tags:"code_keyword",                           value: 0x569CD6ff }
+      theme_color: {tags:"code_delimiter_or_operator",             value: 0xB4B4B4ff }
+      theme_color: {tags:"code_numeric",                           value: 0xB5CEA8ff }
+      theme_color: {tags:"code_numeric_alt_digit_group",           value: 0x8FAF80ff }
+      theme_color: {tags:"code_string",                            value: 0xd39881ff }
+      theme_color: {tags:"code_meta",                              value: 0xAC67C0ff }
+      theme_color: {tags:"code_comment",                           value: 0x31864eff }
       theme_color: {tags:"line_info_0",                            value: 0x4f3022ff }
       theme_color: {tags:"line_info_1",                            value: 0x4f3e15ff }
       theme_color: {tags:"line_info_2",                            value: 0x434e2aff }

@@ -9510,10 +9510,13 @@ rd_code_color_slot_from_txt_token_kind_lookup_string(TXT_TokenKind kind, String8
       {
         default:{mapped = 0;}break;
         case RDI_SectionKind_Procedures:
+        {
+          color = RD_CodeColorSlot_CodeSymbol;
+        }break;
         case RDI_SectionKind_GlobalVariables:
         case RDI_SectionKind_ThreadVariables:
         {
-          color = RD_CodeColorSlot_CodeSymbol;
+          mapped = 0;
         }break;
         case RDI_SectionKind_TypeNodes:
         {
