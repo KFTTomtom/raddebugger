@@ -11923,6 +11923,7 @@ rd_frame(void)
         { 0, 1, str8_lit_comp("FAnsiString"),                str8_lit_comp("(ANSICHAR *)Data.AllocatorInstance.Data, Data.ArrayNum") },
         { 0, 1, str8_lit_comp("FUtf8String"),                str8_lit_comp("(UTF8CHAR *)Data.AllocatorInstance.Data, Data.ArrayNum") },
         { 0, 1, str8_lit_comp("TStringView<?>"),             str8_lit_comp("DataPtr, Size") },
+        { 0, 1, str8_lit_comp("TArray<?{element_type},?>"),   str8_lit_comp("array(cast(element_type *)AllocatorInstance.Data, ArrayNum)") },
         { 0, 1, str8_lit_comp("TArray<?{element_type}>"),    str8_lit_comp("array(cast(element_type *)AllocatorInstance.Data, ArrayNum)") },
         { 0, 1, str8_lit_comp("TSharedRef<?>"),              str8_lit_comp("Object") },
         { 0, 1, str8_lit_comp("TRefCountPtr<?>"),            str8_lit_comp("Reference") },

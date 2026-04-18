@@ -18,12 +18,21 @@
 ////////////////////////////////
 //~ NatVis Global State
 
+typedef struct NV_ScannedDir NV_ScannedDir;
+struct NV_ScannedDir
+{
+  NV_ScannedDir *next;
+  String8 path;
+};
+
 typedef struct NV_State NV_State;
 struct NV_State
 {
   Arena *arena;
   NV_Cache *cache;
   String8List search_paths;
+  NV_ScannedDir *first_scanned_dir;
+  NV_ScannedDir *last_scanned_dir;
   B32 initialized;
   U64 last_reload_check_us;
   U64 reload_interval_us;

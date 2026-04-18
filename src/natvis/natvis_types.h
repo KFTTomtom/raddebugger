@@ -246,6 +246,7 @@ struct NV_TypeDef
   String8List alternative_names;
   NV_Priority priority;
   B32 inheritable;
+  B32 has_intrinsic;
   NV_DisplayString *first_display_string;
   NV_DisplayString *last_display_string;
   NV_StringView *string_view;

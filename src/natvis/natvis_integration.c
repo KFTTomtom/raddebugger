@@ -39,15 +39,35 @@ nv_state_load_file(NV_State *state, String8 path)
   nv_cache_load_file(state->cache, path);
 }
 
+internal B32
+nv_state_dir_already_scanned(NV_State *state, String8 dir_path)
+{
+  for(NV_ScannedDir *d = state->first_scanned_dir; d != 0; d = d->next)
+  {
+    if(str8_match(d->path, dir_path, StringMatchFlag_CaseInsensitive|StringMatchFlag_SlashInsensitive))
+    {
+      return 1;
+    }
+  }
+  return 0;
+}
+
 internal void
 nv_state_load_directory(NV_State *state, String8 dir_path)
 {
+  if(dir_path.size == 0) { return; }
+  if(nv_state_dir_already_scanned(state, dir_path)) { return; }
+  
+  // record as scanned
+  NV_ScannedDir *sd = push_array(state->arena, NV_ScannedDir, 1);
+  sd->path = str8_copy(state->arena, dir_path);
+  SLLQueuePush(state->first_scanned_dir, state->last_scanned_dir, sd);
+  
   Temp scratch = temp_begin(state->arena);
   
   OS_FileIter *it = os_file_iter_begin(scratch.arena, dir_path, OS_FileIterFlag_SkipFolders);
   for(OS_FileInfo info = {0}; os_file_iter_next(scratch.arena, it, &info); )
   {
-    // check for .natvis extension
     if(info.name.size > 7)
     {
       String8 ext = str8(info.name.str + info.name.size - 7, 7);
@@ -86,6 +106,10 @@ nv_register_auto_hooks(NV_State *state, Arena *arena, E_AutoHookMap *auto_hook_m
     
     for(NV_TypeDef *td = nv_file->first_type; td != 0; td = td->next)
     {
+      // skip types that use <Intrinsic> (requires debugger-side function calls
+      // that can't be translated to RAD eval expressions)
+      if(td->has_intrinsic) { continue; }
+      
       // skip types without any displayable content
       if(td->first_display_string == 0 && td->expand == 0) { continue; }
       
@@ -194,10 +218,11 @@ nv_register_auto_hooks(NV_State *state, Arena *arena, E_AutoHookMap *auto_hook_m
 internal U64
 nv_check_reload(NV_State *state)
 {
-  if(state == 0) { return 0; }
+  if(state == 0 || state->cache == 0) { return 0; }
   
   U64 now = os_now_microseconds();
-  if(now - state->last_reload_check_us < state->reload_interval_us)
+  if(state->last_reload_check_us != 0 &&
+     (now - state->last_reload_check_us) < state->reload_interval_us)
   {
     return 0;
   }
