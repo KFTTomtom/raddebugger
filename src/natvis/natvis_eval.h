@@ -29,4 +29,11 @@ internal String8 nv_display_string_to_tag_expr(Arena *arena, NV_DisplayString *d
 // Uses DisplayString first part's expression, or first Item, etc.
 internal String8 nv_type_view_expr_from_typedef(Arena *arena, NV_TypeDef *td, String8 *template_args, U64 template_arg_count);
 
+////////////////////////////////
+//~ NatVis DisplayString → summary expression
+
+// Extracts the first expression from the first DisplayString to use as MetaSummary.
+// Returns the translated RAD expression, or str8_zero() if no DisplayString.
+internal String8 nv_summary_expr_from_typedef(Arena *arena, NV_TypeDef *td, String8 *template_args, U64 template_arg_count);
+
 #endif // NATVIS_EVAL_H
