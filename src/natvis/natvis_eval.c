@@ -186,6 +186,39 @@ nv_display_string_to_tag_expr(Arena *arena, NV_DisplayString *ds, String8 *templ
 //~ NatVis TypeDef → type_view expression
 
 internal String8
+nv_summary_expr_from_typedef(Arena *arena, NV_TypeDef *td, String8 *template_args, U64 template_arg_count)
+{
+  if(td == 0) { return str8_zero(); }
+  
+  for(NV_DisplayString *ds = td->first_display_string; ds != 0; ds = ds->next)
+  {
+    if(ds->condition.size != 0) { continue; }
+    for(NV_DisplayPart *p = ds->first_part; p != 0; p = p->next)
+    {
+      if(p->kind == NV_DisplayPartKind_Expression)
+      {
+        String8 translated = nv_translate_expr(arena, p->text, template_args, template_arg_count);
+        return nv_apply_format_spec(arena, translated, p->format_spec);
+      }
+    }
+  }
+  
+  if(td->first_display_string != 0)
+  {
+    for(NV_DisplayPart *p = td->first_display_string->first_part; p != 0; p = p->next)
+    {
+      if(p->kind == NV_DisplayPartKind_Expression)
+      {
+        String8 translated = nv_translate_expr(arena, p->text, template_args, template_arg_count);
+        return nv_apply_format_spec(arena, translated, p->format_spec);
+      }
+    }
+  }
+  
+  return str8_zero();
+}
+
+internal String8
 nv_type_view_expr_from_typedef(Arena *arena, NV_TypeDef *td, String8 *template_args, U64 template_arg_count)
 {
   if(td == 0) { return str8_zero(); }

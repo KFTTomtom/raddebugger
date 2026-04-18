@@ -496,6 +496,13 @@ e_type_key_cons_meta_description(E_TypeKey type_key, String8 desc)
 }
 
 internal E_TypeKey
+e_type_key_cons_meta_summary(E_TypeKey type_key, String8 summary_expr)
+{
+  E_TypeKey key = e_type_key_cons(.kind = E_TypeKind_MetaSummary, .direct_key = type_key, .name = summary_expr);
+  return key;
+}
+
+internal E_TypeKey
 e_type_key_cons_base(Type *type)
 {
   E_TypeKey result = e_type_key_zero();

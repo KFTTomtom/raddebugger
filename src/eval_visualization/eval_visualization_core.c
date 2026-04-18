@@ -1775,6 +1775,20 @@ ev_string_iter_next(Arena *arena, EV_StringIter *it, String8 *out_string)
       }break;
       
       //////////////////////////
+      //- rjf: meta-summary: evaluate summary expression and display result
+      //
+      case E_TypeKind_MetaSummary:
+      {
+        E_Type *type = e_type_from_key(type_key);
+        E_ParentKey(eval.key)
+        {
+          E_Eval summary_eval = e_eval_from_string(type->name);
+          E_Eval summary_value = e_value_eval_from_eval(summary_eval);
+          *out_string = ev_string_from_simple_typed_eval(arena, params, summary_value);
+        }
+      }break;
+      
+      //////////////////////////
       //- rjf: bitfields
       //
       case E_TypeKind_Bitfield:

@@ -122,6 +122,7 @@ struct RD_WatchRowInfo
 {
   CTRL_Entity *module;
   B32 can_expand;
+  U64 expand_child_count;
   B32 expr_is_editable;
   String8 group_cfg_name;
   CFG_Node *group_cfg_parent;

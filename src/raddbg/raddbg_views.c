@@ -942,6 +942,7 @@ rd_watch_row_info_from_row(Arena *arena, EV_Row *row)
   {
     .module           = &ctrl_entity_nil,
     .can_expand       = ev_row_is_expandable(row),
+    .expand_child_count = 0,
     .group_cfg_parent = &cfg_nil_node,
     .group_cfg_child  = &cfg_nil_node,
     .group_entity     = &ctrl_entity_nil,
@@ -1453,6 +1454,17 @@ rd_watch_row_info_from_row(Arena *arena, EV_Row *row)
                                   .pct = take_pct());
       rd_watch_cell_list_push_new(arena, &info.cells, RD_WatchCellKind_Eval, row->eval,                            .default_pct = 0.65f, .pct = take_pct());
 #undef take_pct
+    }
+    
+    ////////////////////////////
+    //- rjf: compute expand child count for expandable rows
+    //
+    if(info.can_expand)
+    {
+      E_Eval eval_stripped = e_eval_wrapf(row->eval, "q:raw($)");
+      E_TypeExpandRule *expand_rule = e_expand_rule_from_type_key(eval_stripped.irtree.type_key);
+      E_TypeExpandInfo expand_info = expand_rule->info(scratch.arena, eval_stripped, str8_zero());
+      info.expand_child_count = expand_info.expr_count;
     }
     
     ////////////////////////////

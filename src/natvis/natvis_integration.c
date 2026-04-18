@@ -90,6 +90,49 @@ nv_state_load_from_string(NV_State *state, String8 xml_data, String8 source_name
 }
 
 ////////////////////////////////
+//~ Intrinsic Mapping Table
+//
+// Maps UE NatVis <Intrinsic> function calls to RAD eval member expressions.
+// These are Visual Studio-specific virtual functions that NatVis types call
+// but which have no debugger-side implementation in RAD. Instead, we know
+// the underlying C++ member structure and can provide equivalent expressions.
+
+typedef struct NV_IntrinsicMapping NV_IntrinsicMapping;
+struct NV_IntrinsicMapping
+{
+  String8 type_prefix;
+  String8 intrinsic_name;
+  String8 rad_expression;
+};
+
+global read_only NV_IntrinsicMapping nv_intrinsic_table[] =
+{
+  { str8_lit_comp("TArray"),   str8_lit_comp("_Num"),     str8_lit_comp("ArrayNum") },
+  { str8_lit_comp("TArray"),   str8_lit_comp("_Max"),     str8_lit_comp("ArrayMax") },
+  { str8_lit_comp("TArray"),   str8_lit_comp("_GetData"), str8_lit_comp("AllocatorInstance.Data") },
+  { str8_lit_comp("FString"),  str8_lit_comp("_Num"),     str8_lit_comp("Data.ArrayNum") },
+  { str8_lit_comp("FString"),  str8_lit_comp("_Max"),     str8_lit_comp("Data.ArrayMax") },
+  { str8_lit_comp("FString"),  str8_lit_comp("_GetData"), str8_lit_comp("Data.AllocatorInstance.Data") },
+  { str8_lit_comp("TSet"),     str8_lit_comp("_Num"),     str8_lit_comp("Elements.NumFreeIndices == 0 ? Elements.Data.NumBits : Elements.Data.NumBits - Elements.NumFreeIndices") },
+  { str8_lit_comp("TMap"),     str8_lit_comp("_Num"),     str8_lit_comp("Pairs.Elements.NumFreeIndices == 0 ? Pairs.Elements.Data.NumBits : Pairs.Elements.Data.NumBits - Pairs.Elements.NumFreeIndices") },
+};
+
+internal String8
+nv_intrinsic_lookup(String8 type_name, String8 intrinsic_name)
+{
+  for(U64 i = 0; i < ArrayCount(nv_intrinsic_table); i += 1)
+  {
+    if(str8_match(str8_prefix(type_name, nv_intrinsic_table[i].type_prefix.size),
+                  nv_intrinsic_table[i].type_prefix, 0) &&
+       str8_match(intrinsic_name, nv_intrinsic_table[i].intrinsic_name, 0))
+    {
+      return nv_intrinsic_table[i].rad_expression;
+    }
+  }
+  return str8_zero();
+}
+
+////////////////////////////////
 //~ Registration into RAD Eval System
 
 internal void
@@ -156,26 +199,15 @@ nv_register_auto_hooks(NV_State *state, Arena *arena, E_AutoHookMap *auto_hook_m
       // generate the tag expression
       String8 tag_expr = nv_type_view_expr_from_typedef(scratch.arena, td, dummy_template_args, template_count);
       
+      // generate the summary expression from DisplayString
+      String8 summary_expr = nv_summary_expr_from_typedef(scratch.arena, td, dummy_template_args, template_count);
+      
       if(tag_expr.size > 0)
       {
-        // re-insert $T1→? substitution placeholders back for RAD's pattern system
-        // The RAD auto-hook uses the same expression text, and the ?-captured
-        // groups map to {element_type} etc. style names in the expression.
-        // For NatVis, $T1 in the expression stays as $T1 since RAD doesn't
-        // use that syntax. We need to keep wildcards in the expr as
-        // {?}-captured values. However, RAD's auto-hook uses the expression
-        // literally. In practice, NatVis simple types (FString, FColor, etc.)
-        // have no template args and this works directly.
-        
-        // for template types, the expression references members using
-        // translated $T→placeholder which stays as typed text.
-        // RAD's ? captures are positionally named, so we map:
-        // $T1 → first ? capture. The eval_ir layer handles this via
-        // pattern matching already.
-        
         e_auto_hook_map_insert_new(arena, auto_hook_map,
           .type_pattern = str8_copy(arena, pattern),
-          .tag_expr_string = str8_copy(arena, tag_expr));
+          .tag_expr_string = str8_copy(arena, tag_expr),
+          .summary_expr_string = summary_expr.size > 0 ? str8_copy(arena, summary_expr) : str8_zero());
       }
       
       // also register AlternativeType names
@@ -204,7 +236,8 @@ nv_register_auto_hooks(NV_State *state, Arena *arena, E_AutoHookMap *auto_hook_m
         
         e_auto_hook_map_insert_new(arena, auto_hook_map,
           .type_pattern = str8_copy(arena, alt_pattern),
-          .tag_expr_string = str8_copy(arena, tag_expr));
+          .tag_expr_string = str8_copy(arena, tag_expr),
+          .summary_expr_string = summary_expr.size > 0 ? str8_copy(arena, summary_expr) : str8_zero());
       }
     }
   }

@@ -3968,6 +3968,7 @@ rd_view_ui(Rng2F32 rect)
                               if(row_is_expandable && cell == row_info->cells.first)
                               {
                                 cell_params.flags |= RD_CellFlag_Expander;
+                                cell_params.expander_child_count = row_info->expand_child_count;
                               }
                               else if(cells_are_editable && row_depth == !implicit_root && cell == row_info->cells.first)
                               {
@@ -11912,25 +11913,30 @@ rd_frame(void)
         B32 ue;
         String8 pattern;
         String8 expr;
+        String8 summary;
       }
       type_views[] =
       {
-        { 1, 0, str8_lit_comp("std::vector<?>"),             str8_lit_comp("slice(_Mypair._Myval2)") },
-        { 1, 0, str8_lit_comp("std::unique_ptr<?>"),         str8_lit_comp("_Mypair._Myval2") },
-        { 1, 0, str8_lit_comp("std::basic_string<?>"),       str8_lit_comp("_Mypair._Myval2._Myres <= 15 ? _Mypair._Myval2._Bx._Buf : array(_Mypair._Myval2._Bx._Ptr, _Mypair._Myval2._Mysize)") },
-        { 1, 0, str8_lit_comp("std::basic_string_view<?>"),  str8_lit_comp("array(_Mydata, _Mysize)") },
-        { 0, 1, str8_lit_comp("FString"),                    str8_lit_comp("(TCHAR *)Data.AllocatorInstance.Data, Data.ArrayNum") },
-        { 0, 1, str8_lit_comp("FAnsiString"),                str8_lit_comp("(ANSICHAR *)Data.AllocatorInstance.Data, Data.ArrayNum") },
-        { 0, 1, str8_lit_comp("FUtf8String"),                str8_lit_comp("(UTF8CHAR *)Data.AllocatorInstance.Data, Data.ArrayNum") },
-        { 0, 1, str8_lit_comp("TStringView<?>"),             str8_lit_comp("DataPtr, Size") },
-        { 0, 1, str8_lit_comp("TArray<?{element_type},?>"),   str8_lit_comp("array(cast(element_type *)AllocatorInstance.Data, ArrayNum)") },
-        { 0, 1, str8_lit_comp("TArray<?{element_type}>"),    str8_lit_comp("array(cast(element_type *)AllocatorInstance.Data, ArrayNum)") },
-        { 0, 1, str8_lit_comp("TSharedRef<?>"),              str8_lit_comp("Object") },
-        { 0, 1, str8_lit_comp("TRefCountPtr<?>"),            str8_lit_comp("Reference") },
-        { 0, 1, str8_lit_comp("FNameEntry"),                 str8_lit_comp("AnsiName, Header.Len") },
-        { 0, 1, str8_lit_comp("FNameEntryId"),               str8_lit_comp("*(cast(FNameEntry *)(&GNameBlocksDebug[Value >> FNameDebugVisualizer::OffsetBits][FNameDebugVisualizer::EntryStride * (Value & FNameDebugVisualizer::OffsetMask)]))") },
-        { 0, 1, str8_lit_comp("TObjectPtr<?>"),              str8_lit_comp("DebugPtr") },
-        { 0, 1, str8_lit_comp("FColor"),                     str8_lit_comp("hex(color(Bits))") },
+        { 1, 0, str8_lit_comp("std::vector<?>"),             str8_lit_comp("slice(_Mypair._Myval2)"),      {0} },
+        { 1, 0, str8_lit_comp("std::unique_ptr<?>"),         str8_lit_comp("_Mypair._Myval2"),             {0} },
+        { 1, 0, str8_lit_comp("std::basic_string<?>"),       str8_lit_comp("_Mypair._Myval2._Myres <= 15 ? _Mypair._Myval2._Bx._Buf : array(_Mypair._Myval2._Bx._Ptr, _Mypair._Myval2._Mysize)"), {0} },
+        { 1, 0, str8_lit_comp("std::basic_string_view<?>"),  str8_lit_comp("array(_Mydata, _Mysize)"),     {0} },
+        { 0, 1, str8_lit_comp("FString"),                    str8_lit_comp("(TCHAR *)Data.AllocatorInstance.Data, Data.ArrayNum"), {0} },
+        { 0, 1, str8_lit_comp("FAnsiString"),                str8_lit_comp("(ANSICHAR *)Data.AllocatorInstance.Data, Data.ArrayNum"), {0} },
+        { 0, 1, str8_lit_comp("FUtf8String"),                str8_lit_comp("(UTF8CHAR *)Data.AllocatorInstance.Data, Data.ArrayNum"), {0} },
+        { 0, 1, str8_lit_comp("TStringView<?>"),             str8_lit_comp("DataPtr, Size"),                {0} },
+        { 0, 1, str8_lit_comp("TArray<?{element_type},?>"),  str8_lit_comp("array(cast(element_type *)AllocatorInstance.Data, ArrayNum)"), str8_lit_comp("ArrayNum") },
+        { 0, 1, str8_lit_comp("TArray<?{element_type}>"),    str8_lit_comp("array(cast(element_type *)AllocatorInstance.Data, ArrayNum)"), str8_lit_comp("ArrayNum") },
+        { 0, 1, str8_lit_comp("TSharedRef<?>"),              str8_lit_comp("Object"),                      {0} },
+        { 0, 1, str8_lit_comp("TSharedPtr<?>"),              str8_lit_comp("Object"),                      {0} },
+        { 0, 1, str8_lit_comp("TSharedPtr<?,?>"),            str8_lit_comp("Object"),                      {0} },
+        { 0, 1, str8_lit_comp("TWeakObjectPtr<?>"),          str8_lit_comp("WeakPtr"),                     {0} },
+        { 0, 1, str8_lit_comp("TRefCountPtr<?>"),            str8_lit_comp("Reference"),                   {0} },
+        { 0, 1, str8_lit_comp("FNameEntry"),                 str8_lit_comp("AnsiName, Header.Len"),        {0} },
+        { 0, 1, str8_lit_comp("FNameEntryId"),               str8_lit_comp("*(cast(FNameEntry *)(&GNameBlocksDebug[Value >> FNameDebugVisualizer::OffsetBits][FNameDebugVisualizer::EntryStride * (Value & FNameDebugVisualizer::OffsetMask)]))"), {0} },
+        { 0, 1, str8_lit_comp("TObjectPtr<?>"),              str8_lit_comp("DebugPtr"),                    {0} },
+        { 0, 1, str8_lit_comp("TOptional<?>"),               str8_lit_comp("bIsSet ? TypedValue"),         {0} },
+        { 0, 1, str8_lit_comp("FColor"),                     str8_lit_comp("hex(color(Bits))"),            {0} },
       };
       if(rd_state->use_default_stl_type_views)
       {
@@ -11945,6 +11951,11 @@ rd_frame(void)
             CFG_Node *expr = cfg_node_child_from_string_or_alloc(rd_state->cfg, type_view, str8_lit("expr"));
             cfg_node_new_replace(rd_state->cfg, type, type_views[idx].pattern);
             cfg_node_new_replace(rd_state->cfg, expr, type_views[idx].expr);
+            if(type_views[idx].summary.size != 0)
+            {
+              CFG_Node *summary = cfg_node_child_from_string_or_alloc(rd_state->cfg, type_view, str8_lit("summary"));
+              cfg_node_new_replace(rd_state->cfg, summary, type_views[idx].summary);
+            }
             cfg_node_ptr_list_push(scratch.arena, &immediate_type_views, type_view);
           }
         }
@@ -11969,7 +11980,8 @@ rd_frame(void)
           CFG_Node *rule = n->v;
           String8 type_string = cfg_node_child_from_string(rule, str8_lit("type"))->first->string;
           String8 expr_string = cfg_node_child_from_string(rule, str8_lit("expr"))->first->string;
-          e_auto_hook_map_insert_new(scratch.arena, auto_hook_map, .type_pattern = type_string, .tag_expr_string = expr_string);
+          String8 summary_string = cfg_node_child_from_string(rule, str8_lit("summary"))->first->string;
+          e_auto_hook_map_insert_new(scratch.arena, auto_hook_map, .type_pattern = type_string, .tag_expr_string = expr_string, .summary_expr_string = summary_string);
         }
       }
     }

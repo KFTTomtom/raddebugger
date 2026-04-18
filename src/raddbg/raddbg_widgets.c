@@ -3467,6 +3467,17 @@ rd_cell(RD_CellParams *params, String8 string)
       }
     }
     
+    //- rjf: build child count badge next to expander
+    if((params->flags & RD_CellFlag_Expander) && params->expander_child_count > 0)
+      UI_Parent(box)
+      UI_PrefWidth(ui_text_dim(4, 1.f))
+      UI_Focus(UI_FocusKind_Off)
+      UI_TagF("weak")
+      UI_FontSize(ui_top_font_size()*0.85f)
+    {
+      ui_labelf("[%I64u]", params->expander_child_count);
+    }
+    
     //- rjf: build expander placeholder
     else if(params->flags & RD_CellFlag_ExpanderPlaceholder) UI_Parent(box) UI_PrefWidth(ui_px(expander_size_px, 1.f)) UI_Focus(UI_FocusKind_Off)
     {

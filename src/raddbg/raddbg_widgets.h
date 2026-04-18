@@ -58,6 +58,7 @@ struct RD_CellParams
   
   //- rjf: expander r/w info
   B32 *expanded_out;
+  U64 expander_child_count;
   
   //- rjf: toggle-switch r/w info
   B32 *toggled_out;

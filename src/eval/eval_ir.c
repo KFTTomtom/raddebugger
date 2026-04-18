@@ -605,6 +605,7 @@ e_push_irtree_and_type_from_expr(Arena *arena, E_IRTreeAndType *root_parent, E_I
     E_AutoHookWildcardInst *first_wildcard_inst;
     E_AutoHookWildcardInst *last_wildcard_inst;
     E_IRTreeAndType *overridden;
+    String8 summary_expr_string;
   };
   Task start_task = {0, root_expr, 0};
   Task *first_task = &start_task;
@@ -2543,6 +2544,10 @@ e_push_irtree_and_type_from_expr(Arena *arena, E_IRTreeAndType *root_parent, E_I
     if(t->overridden)
     {
       result.auto_hook = 1;
+      if(t->summary_expr_string.size != 0)
+      {
+        result.type_key = e_type_key_cons_meta_summary(result.type_key, t->summary_expr_string);
+      }
     }
     
     //- rjf: restore stack elements
@@ -2565,6 +2570,7 @@ e_push_irtree_and_type_from_expr(Arena *arena, E_IRTreeAndType *root_parent, E_I
           task->last_wildcard_inst  = match->last_wildcard_inst;
           task->overridden = push_array(scratch.arena, E_IRTreeAndType, 1);
           task->overridden[0] = result;
+          task->summary_expr_string = match->summary_expr_string;
           goto end_autohook_find;
         }
       }
