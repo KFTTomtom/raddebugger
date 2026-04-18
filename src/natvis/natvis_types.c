@@ -366,7 +366,7 @@ nv_file_from_xml(Arena *arena, NV_XMLNode *xml_root, String8 file_path)
     String8 inh = nv_xml_attr_from_key(type_node, str8_lit("Inheritable"));
     td->inheritable = (inh.size == 0 || inh.str[0] == 't' || inh.str[0] == 'T' || inh.str[0] == '1');
     
-    // AlternativeType
+    // AlternativeType + Intrinsic detection
     for(NV_XMLNode *ac = type_node->first; ac != 0; ac = ac->next)
     {
       if(str8_match(ac->tag, str8_lit("AlternativeType"), 0))
@@ -376,6 +376,10 @@ nv_file_from_xml(Arena *arena, NV_XMLNode *xml_root, String8 file_path)
         {
           str8_list_push(arena, &td->alternative_names, alt_name);
         }
+      }
+      else if(str8_match(ac->tag, str8_lit("Intrinsic"), 0))
+      {
+        td->has_intrinsic = 1;
       }
     }
     
