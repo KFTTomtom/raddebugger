@@ -7062,15 +7062,16 @@ ctrl_call_stack_tree_artifact_create(String8 key, B32 *cancel_signal, B32 *retry
   {
     CTRL_EntityCtx *ctx = &ctrl_state->ctrl_thread_entity_store->ctx;
     CTRL_EntityArray thread_entities = ctrl_entity_array_from_kind(ctx, CTRL_EntityKind_Thread);
-    threads_count = thread_entities.count;
-    threads = push_array(scratch.arena, CTRL_Handle, threads_count);
-    threads_processes = push_array(scratch.arena, CTRL_Handle, threads_count);
-    threads_arches = push_array(scratch.arena, Arch, threads_count);
-    for EachIndex(idx, threads_count)
+    threads = push_array(scratch.arena, CTRL_Handle, thread_entities.count);
+    threads_processes = push_array(scratch.arena, CTRL_Handle, thread_entities.count);
+    threads_arches = push_array(scratch.arena, Arch, thread_entities.count);
+    for EachIndex(idx, thread_entities.count)
     {
-      threads[idx] = thread_entities.v[idx]->handle;
-      threads_processes[idx] = thread_entities.v[idx]->parent->handle;
-      threads_arches[idx] = thread_entities.v[idx]->arch;
+      if(thread_entities.v[idx]->string.size == 0) { continue; }
+      threads[threads_count] = thread_entities.v[idx]->handle;
+      threads_processes[threads_count] = thread_entities.v[idx]->parent->handle;
+      threads_arches[threads_count] = thread_entities.v[idx]->arch;
+      threads_count += 1;
     }
   }
   
@@ -7115,10 +7116,11 @@ ctrl_call_stack_tree_artifact_create(String8 key, B32 *cancel_signal, B32 *retry
       Arch arch = threads_arches[thread_idx];
       CTRL_CallStack call_stack = call_stacks[thread_idx];
       CTRL_CallStackTreeNode *thread_node = tree->root;
-      for EachIndex(frame_idx, call_stack.frames_count)
+      for(U64 frame_idx = call_stack.frames_count; frame_idx > 0; frame_idx -= 1)
       {
-        U64 vaddr = regs_rip_from_arch_block(arch, call_stack.frames[frame_idx].regs);
-        U64 depth = call_stack.frames[frame_idx].inline_depth;
+        U64 fi = frame_idx - 1;
+        U64 vaddr = regs_rip_from_arch_block(arch, call_stack.frames[fi].regs);
+        U64 depth = call_stack.frames[fi].inline_depth;
         CTRL_CallStackTreeNode *next_node = &ctrl_call_stack_tree_node_nil;
         for(CTRL_CallStackTreeNode *child = thread_node->first; child != &ctrl_call_stack_tree_node_nil; child = child->next)
         {
@@ -7133,6 +7135,9 @@ ctrl_call_stack_tree_artifact_create(String8 key, B32 *cancel_signal, B32 *retry
           next_node = push_array(arena, CTRL_CallStackTreeNode, 1);
           MemoryCopyStruct(next_node, &ctrl_call_stack_tree_node_nil);
           next_node->id = id_gen;
+          next_node->process = process;
+          next_node->vaddr = vaddr;
+          next_node->depth = depth;
           SLLStackPush_N(tree->slots[next_node->id%tree->slots_count], next_node, hash_next);
           id_gen += 1;
           SLLQueuePush_NZ(&ctrl_call_stack_tree_node_nil, thread_node->first, thread_node->last, next_node, next);
@@ -7182,7 +7187,7 @@ ctrl_call_stack_tree(Access *access, U64 endt_us)
 {
   CTRL_CallStackTree result = {&ctrl_call_stack_tree_node_nil};
   {
-    AC_Artifact artifact = ac_artifact_from_key(access, str8_zero(), ctrl_call_stack_tree_artifact_create, ctrl_call_stack_tree_artifact_destroy, endt_us);
+    AC_Artifact artifact = ac_artifact_from_key(access, str8_zero(), ctrl_call_stack_tree_artifact_create, ctrl_call_stack_tree_artifact_destroy, endt_us, .gen = ctrl_reg_gen());
     if(artifact.u64[1] != 0)
     {
       MemoryCopyStruct(&result, (CTRL_CallStackTree *)artifact.u64[1]);

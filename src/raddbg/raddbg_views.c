@@ -5317,3 +5317,753 @@ RD_VIEW_UI_FUNCTION_DEF(geo3d)
   access_close(access);
   scratch_end(scratch);
 }
+
+////////////////////////////////
+//~ rjf: Parallel Stacks View (V2 -- VS-style branches)
+
+typedef struct RD_PSFrame RD_PSFrame;
+struct RD_PSFrame
+{
+  String8 name;
+  CTRL_CallStackTreeNode *tree_node;
+  B32 has_symbol;
+  B32 is_inlined;
+};
+
+typedef struct RD_PSBranch RD_PSBranch;
+struct RD_PSBranch
+{
+  RD_PSFrame *frames;
+  U64 frame_count;
+  String8 thread_header;
+  U64 thread_count;
+  Vec2F32 pos;
+  Vec2F32 size;
+  U64 parent_idx;
+  B32 has_parent;
+  CTRL_CallStackTreeNode *first_tree_node;
+  CTRL_CallStackTreeNode *last_tree_node;
+};
+
+typedef struct RD_PSLayout RD_PSLayout;
+struct RD_PSLayout
+{
+  RD_PSBranch *branches;
+  U64 branch_count;
+  Vec2F32 bounds;
+};
+
+internal String8
+rd_ps_resolve_name(Arena *arena, Access *access, CTRL_CallStackTreeNode *n)
+{
+  CTRL_Entity *process = ctrl_entity_from_handle(&d_state->ctrl_entity_store->ctx, n->process);
+  CTRL_Entity *module = ctrl_module_from_process_vaddr(process, n->vaddr);
+  U64 voff = ctrl_voff_from_vaddr(module, n->vaddr);
+  String8 name = {0};
+  DI_Key dbgi_key = ctrl_dbgi_key_from_module(module);
+  RDI_Parsed *rdi = di_rdi_from_key(access, dbgi_key, 0, 0);
+  if(rdi != &rdi_parsed_nil)
+  {
+    RDI_Procedure *procedure = rdi_procedure_from_voff(rdi, voff);
+    name.str = rdi_string_from_idx(rdi, procedure->name_string_idx, &name.size);
+    name = push_str8_copy(arena, name);
+  }
+  if(name.size == 0) { name = push_str8f(arena, "0x%I64x", n->vaddr); }
+  return name;
+}
+
+internal void
+rd_ps_collect_thread_names(Arena *arena, CTRL_CallStackTreeNode *node, String8List *out)
+{
+  for(CTRL_HandleNode *hn = node->threads.first; hn != 0; hn = hn->next)
+  {
+    CTRL_Entity *te = ctrl_entity_from_handle(&d_state->ctrl_entity_store->ctx, hn->v);
+    if(te != &ctrl_entity_nil && te->string.size > 0)
+    {
+      str8_list_push(arena, out, te->string);
+    }
+  }
+  for(CTRL_CallStackTreeNode *child = node->first;
+      child != &ctrl_call_stack_tree_node_nil;
+      child = child->next)
+  {
+    rd_ps_collect_thread_names(arena, child, out);
+  }
+}
+
+internal RD_PSLayout
+rd_parallel_stacks_layout(Arena *arena, CTRL_CallStackTree *tree, Access *access, CTRL_Handle filter_process, B32 raw_mode)
+{
+  RD_PSLayout layout = {0};
+  if(tree->root == &ctrl_call_stack_tree_node_nil) { return layout; }
+
+  F32 branch_w = 300.f;
+  F32 frame_h  = 18.f;
+  F32 header_h = 20.f;
+  F32 pad_v    = 4.f;
+  F32 h_gap    = 40.f;
+  F32 v_gap    = 30.f;
+
+  U64 capacity = 512;
+  RD_PSBranch *branches = push_array(arena, RD_PSBranch, capacity);
+  U64 b_count = 0;
+
+  typedef struct StackEntry StackEntry;
+  struct StackEntry
+  {
+    StackEntry *next;
+    CTRL_CallStackTreeNode *node;
+    U64 parent_branch_idx;
+    B32 has_parent;
+  };
+
+  StackEntry *stack = 0;
+
+  for(CTRL_CallStackTreeNode *child = tree->root->first;
+      child != &ctrl_call_stack_tree_node_nil;
+      child = child->next)
+  {
+    if(!ctrl_handle_match(child->process, filter_process)) { continue; }
+    StackEntry *e = push_array(arena, StackEntry, 1);
+    e->node = child;
+    e->parent_branch_idx = 0;
+    e->has_parent = 0;
+    e->next = stack;
+    stack = e;
+  }
+
+  while(stack != 0)
+  {
+    StackEntry *e = stack;
+    stack = stack->next;
+    if(b_count >= capacity) { break; }
+
+    CTRL_CallStackTreeNode *start = e->node;
+    U64 branch_idx = b_count++;
+    RD_PSBranch *br = &branches[branch_idx];
+    br->parent_idx = e->parent_branch_idx;
+    br->has_parent = e->has_parent;
+
+    U64 frame_cap = 256;
+    br->frames = push_array(arena, RD_PSFrame, frame_cap);
+    br->frame_count = 0;
+
+    CTRL_CallStackTreeNode *cur = start;
+    br->first_tree_node = cur;
+    while(cur != &ctrl_call_stack_tree_node_nil)
+    {
+      if(br->frame_count < frame_cap)
+      {
+        String8 fname = rd_ps_resolve_name(arena, access, cur);
+        B32 has_sym = !(fname.size >= 2 && fname.str[0] == '0' && fname.str[1] == 'x');
+        B32 is_inl = (cur->depth > 0);
+        B32 include = raw_mode || (has_sym && !is_inl);
+        if(include)
+        {
+          br->frames[br->frame_count].name = fname;
+          br->frames[br->frame_count].tree_node = cur;
+          br->frames[br->frame_count].has_symbol = has_sym;
+          br->frames[br->frame_count].is_inlined = is_inl;
+          br->frame_count += 1;
+        }
+      }
+      br->last_tree_node = cur;
+
+      if(cur->child_count == 1)
+      {
+        cur = cur->first;
+      }
+      else
+      {
+        if(cur->child_count > 1)
+        {
+          for(CTRL_CallStackTreeNode *child = cur->first;
+              child != &ctrl_call_stack_tree_node_nil;
+              child = child->next)
+          {
+            StackEntry *ce = push_array(arena, StackEntry, 1);
+            ce->node = child;
+            ce->parent_branch_idx = branch_idx;
+            ce->has_parent = 1;
+            ce->next = stack;
+            stack = ce;
+          }
+        }
+        break;
+      }
+    }
+
+    if(br->frame_count > 1)
+    {
+      for(U64 lo = 0, hi = br->frame_count - 1; lo < hi; lo += 1, hi -= 1)
+      {
+        RD_PSFrame tmp = br->frames[lo];
+        br->frames[lo] = br->frames[hi];
+        br->frames[hi] = tmp;
+      }
+    }
+
+    String8List thread_names = {0};
+    rd_ps_collect_thread_names(arena, br->last_tree_node, &thread_names);
+    if(br->last_tree_node != br->first_tree_node)
+    {
+      for(U64 fi = 0; fi < br->frame_count; fi += 1)
+      {
+        CTRL_CallStackTreeNode *fn = br->frames[fi].tree_node;
+        if(fn == br->last_tree_node) { continue; }
+        for(CTRL_HandleNode *hn = fn->threads.first; hn != 0; hn = hn->next)
+        {
+          CTRL_Entity *te = ctrl_entity_from_handle(&d_state->ctrl_entity_store->ctx, hn->v);
+          if(te != &ctrl_entity_nil && te->string.size > 0)
+          {
+            B32 dup = 0;
+            for(String8Node *sn = thread_names.first; sn != 0; sn = sn->next)
+            {
+              if(str8_match(sn->string, te->string, 0)) { dup = 1; break; }
+            }
+            if(!dup) { str8_list_push(arena, &thread_names, te->string); }
+          }
+        }
+      }
+    }
+    br->thread_count = thread_names.node_count;
+    if(thread_names.node_count > 0)
+    {
+      StringJoin join = {str8_lit(""), str8_lit(", "), str8_lit("")};
+      br->thread_header = str8_list_join(arena, &thread_names, &join);
+    }
+    else
+    {
+      br->thread_header = str8_lit("(no threads)");
+    }
+
+    br->size = v2f32(branch_w, header_h + (F32)br->frame_count * frame_h + pad_v * 2.f);
+  }
+
+  //- discard empty branches (cleanup mode: no visible frames => remove thread representation)
+  if(!raw_mode)
+  {
+    U64 *remap = push_array(arena, U64, b_count);
+    U64 dst = 0;
+    for(U64 src = 0; src < b_count; src += 1)
+    {
+      if(branches[src].frame_count == 0)
+      {
+        remap[src] = (U64)-1;
+        for(U64 j = 0; j < b_count; j += 1)
+        {
+          if(branches[j].has_parent && branches[j].parent_idx == src)
+          {
+            branches[j].parent_idx = branches[src].parent_idx;
+            branches[j].has_parent = branches[src].has_parent;
+          }
+        }
+      }
+      else
+      {
+        remap[src] = dst;
+        if(dst != src) { branches[dst] = branches[src]; }
+        dst += 1;
+      }
+    }
+    for(U64 i = 0; i < dst; i += 1)
+    {
+      if(branches[i].has_parent)
+      {
+        branches[i].parent_idx = remap[branches[i].parent_idx];
+        if(branches[i].parent_idx == (U64)-1) { branches[i].has_parent = 0; }
+      }
+    }
+    b_count = dst;
+  }
+
+  F32 max_x = 0;
+  F32 max_y = 0;
+
+  //- compute depth for each branch
+  U64 *branch_depth = push_array(arena, U64, b_count);
+  U64 max_depth = 0;
+  for(U64 i = 0; i < b_count; i += 1)
+  {
+    if(!branches[i].has_parent) { branch_depth[i] = 0; }
+    else { branch_depth[i] = branch_depth[branches[i].parent_idx] + 1; }
+    max_depth = Max(max_depth, branch_depth[i]);
+  }
+
+  //- compute cumulative Y heights per depth (bottom-up: depth 0 = bottom)
+  //  we lay out with depth 0 (roots) at the bottom and max_depth (leaves) at top
+  F32 *depth_y = push_array(arena, F32, max_depth + 2);
+  F32 *depth_max_h = push_array(arena, F32, max_depth + 1);
+  MemoryZero(depth_max_h, (max_depth + 1) * sizeof(F32));
+  for(U64 i = 0; i < b_count; i += 1)
+  {
+    depth_max_h[branch_depth[i]] = Max(depth_max_h[branch_depth[i]], branches[i].size.y);
+  }
+  //- stack from top: highest depth first
+  F32 y_cursor = 0;
+  for(U64 d = max_depth + 1; d > 0; d -= 1)
+  {
+    U64 dd = d - 1;
+    depth_y[dd] = y_cursor;
+    y_cursor += depth_max_h[dd] + v_gap;
+  }
+
+  for(U64 i = 0; i < b_count; i += 1)
+  {
+    branches[i].pos.y = depth_y[branch_depth[i]];
+  }
+
+  //- compute subtree widths bottom-up
+  F32 *subtree_w = push_array(arena, F32, b_count);
+  for(U64 i = b_count; i > 0; i -= 1)
+  {
+    U64 idx = i - 1;
+    F32 children_total = 0;
+    U64 child_count = 0;
+    for(U64 j = 0; j < b_count; j += 1)
+    {
+      if(branches[j].has_parent && branches[j].parent_idx == idx)
+      {
+        children_total += subtree_w[j];
+        child_count += 1;
+      }
+    }
+    if(child_count > 0)
+    {
+      children_total += (F32)(child_count - 1) * h_gap;
+    }
+    subtree_w[idx] = Max(branch_w, children_total);
+  }
+
+  //- assign X top-down using subtree widths
+  {
+    F32 x_cursor = 0;
+    for(U64 i = 0; i < b_count; i += 1)
+    {
+      if(!branches[i].has_parent)
+      {
+        branches[i].pos.x = x_cursor + (subtree_w[i] - branch_w) * 0.5f;
+        x_cursor += subtree_w[i] + h_gap;
+      }
+    }
+  }
+
+  for(U64 i = 0; i < b_count; i += 1)
+  {
+    U64 first_child = (U64)-1;
+    F32 children_total = 0;
+    U64 child_count = 0;
+    for(U64 j = 0; j < b_count; j += 1)
+    {
+      if(branches[j].has_parent && branches[j].parent_idx == i)
+      {
+        if(first_child == (U64)-1) { first_child = j; }
+        children_total += subtree_w[j];
+        child_count += 1;
+      }
+    }
+    if(child_count == 0) { continue; }
+    children_total += (F32)(child_count - 1) * h_gap;
+
+    F32 parent_cx = branches[i].pos.x + branch_w * 0.5f;
+    F32 fan_start = parent_cx - children_total * 0.5f;
+    F32 cx = fan_start;
+    for(U64 j = 0; j < b_count; j += 1)
+    {
+      if(branches[j].has_parent && branches[j].parent_idx == i)
+      {
+        branches[j].pos.x = cx + (subtree_w[j] - branch_w) * 0.5f;
+        cx += subtree_w[j] + h_gap;
+      }
+    }
+  }
+
+  for(U64 i = 0; i < b_count; i += 1)
+  {
+    max_x = Max(max_x, branches[i].pos.x + branches[i].size.x);
+    max_y = Max(max_y, branches[i].pos.y + branches[i].size.y);
+  }
+
+  layout.branches = branches;
+  layout.branch_count = b_count;
+  layout.bounds = v2f32(max_x, max_y);
+  return layout;
+}
+
+typedef struct RD_PSEdge RD_PSEdge;
+struct RD_PSEdge
+{
+  Vec2F32 parent_bottom_center;
+  Vec2F32 child_top_center;
+};
+
+typedef struct RD_PSDrawData RD_PSDrawData;
+struct RD_PSDrawData
+{
+  RD_PSEdge *edges;
+  U64 edge_count;
+  Vec2F32 view_off;
+  F32 zoom;
+  F32 padding;
+  Vec4F32 edge_color;
+};
+
+internal UI_BOX_CUSTOM_DRAW(rd_parallel_stacks_canvas_draw)
+{
+  RD_PSDrawData *dd = (RD_PSDrawData *)user_data;
+  F32 z = dd->zoom;
+  F32 pad = dd->padding;
+  Vec2F32 vo = dd->view_off;
+  F32 lt = Max(1.f, 1.5f * z);
+  F32 bx = box->rect.x0;
+  F32 by = box->rect.y0;
+
+  for(U64 i = 0; i < dd->edge_count; i += 1)
+  {
+    RD_PSEdge *edge = &dd->edges[i];
+    F32 p0x = bx + (edge->parent_bottom_center.x + pad - vo.x) * z;
+    F32 p0y = by + (edge->parent_bottom_center.y + pad - vo.y) * z;
+    F32 p1x = bx + (edge->child_top_center.x + pad - vo.x) * z;
+    F32 p1y = by + (edge->child_top_center.y + pad - vo.y) * z;
+    F32 my = (p0y + p1y) * 0.5f;
+
+    dr_rect(r2f32p(p0x - lt*0.5f, Min(p0y, my), p0x + lt*0.5f, Max(p0y, my)),
+            dd->edge_color, 0, 0, 0.5f);
+    dr_rect(r2f32p(Min(p0x, p1x) - lt*0.5f, my - lt*0.5f,
+                   Max(p0x, p1x) + lt*0.5f, my + lt*0.5f),
+            dd->edge_color, 0, 0, 0.5f);
+    dr_rect(r2f32p(p1x - lt*0.5f, Min(p1y, my), p1x + lt*0.5f, Max(p1y, my)),
+            dd->edge_color, 0, 0, 0.5f);
+  }
+}
+
+RD_VIEW_UI_FUNCTION_DEF(parallel_stacks)
+{
+  Temp scratch = scratch_begin(0, 0);
+  Access *access = access_open();
+
+  F32 zoom = rd_view_setting_value_from_name(str8_lit("zoom")).f32;
+  Vec2F32 view_off =
+  {
+    rd_view_setting_value_from_name(str8_lit("x")).f32,
+    rd_view_setting_value_from_name(str8_lit("y")).f32,
+  };
+  if(zoom == 0) { zoom = 1.f; }
+
+  CTRL_Handle filter_process = rd_base_regs()->process;
+  B32 raw_mode = rd_setting_b32_from_name(str8_lit("parallel_stacks_raw"));
+
+  B32 is_running = d_ctrl_targets_running();
+  U64 was_running = rd_view_setting_value_from_name(str8_lit("was_running")).u64;
+  U64 refresh_frames = rd_view_setting_value_from_name(str8_lit("refresh_frames")).u64;
+
+  if(was_running && !is_running)
+  {
+    refresh_frames = 20;
+  }
+
+  CTRL_CallStackTree tree = ctrl_call_stack_tree(access, rd_state->frame_eval_memread_endt_us);
+  RD_PSLayout layout = rd_parallel_stacks_layout(scratch.arena, &tree, access, filter_process, raw_mode);
+
+  if(refresh_frames > 0)
+  {
+    rd_request_frame();
+    refresh_frames -= 1;
+  }
+
+  Vec2F32 canvas_dim = dim_2f32(rect);
+  Rng2F32 canvas_rect = r2f32p(0, 0, canvas_dim.x, canvas_dim.y);
+
+  UI_Box *canvas_box = &ui_nil_box;
+  UI_Rect(canvas_rect)
+  {
+    canvas_box = ui_build_box_from_stringf(UI_BoxFlag_Clip|UI_BoxFlag_Scroll|UI_BoxFlag_DrawBackground, "ps_canvas");
+  }
+
+  F32 padding = 40.f;
+  Vec4F32 edge_color = ui_color_from_name(str8_lit("text"));
+  edge_color.w *= 0.35f;
+
+  {
+    U64 edge_cap = layout.branch_count;
+    RD_PSEdge *edges = push_array(ui_build_arena(), RD_PSEdge, edge_cap);
+    U64 edge_count = 0;
+    for(U64 i = 0; i < layout.branch_count; i += 1)
+    {
+      RD_PSBranch *br = &layout.branches[i];
+      if(!br->has_parent || edge_count >= edge_cap) { continue; }
+      RD_PSBranch *parent = &layout.branches[br->parent_idx];
+      edges[edge_count].parent_bottom_center = v2f32(parent->pos.x + parent->size.x * 0.5f,
+                                                     parent->pos.y);
+      edges[edge_count].child_top_center = v2f32(br->pos.x + br->size.x * 0.5f,
+                                                  br->pos.y + br->size.y);
+      edge_count += 1;
+    }
+    RD_PSDrawData *draw_data = push_array(ui_build_arena(), RD_PSDrawData, 1);
+    draw_data->edges = edges;
+    draw_data->edge_count = edge_count;
+    draw_data->view_off = view_off;
+    draw_data->zoom = zoom;
+    draw_data->padding = padding;
+    draw_data->edge_color = edge_color;
+    ui_box_equip_custom_draw(canvas_box, rd_parallel_stacks_canvas_draw, draw_data);
+  }
+
+  Vec4F32 node_bg_color = ui_color_from_name(str8_lit("tab background"));
+  Vec4F32 code_color = ui_color_from_name(str8_lit("code_default"));
+  Vec4F32 highlight_color = ui_color_from_name(str8_lit("focus overlay"));
+  highlight_color.w = 0.4f;
+  Vec4F32 footer_bg = ui_color_from_name(str8_lit("alt background"));
+  Vec4F32 footer_text = ui_color_from_name(str8_lit("text"));
+  footer_text.w *= 0.55f;
+
+  CTRL_Handle selected_thread = rd_base_regs()->thread;
+  F32 frame_h = 18.f;
+  F32 footer_h = 20.f;
+
+  //- auto-focus: while refreshing, keep trying to center on the selected thread's branch
+  if(refresh_frames > 0 && layout.branch_count > 0)
+  {
+    for(U64 bi = 0; bi < layout.branch_count; bi += 1)
+    {
+      RD_PSBranch *br = &layout.branches[bi];
+      B32 found = 0;
+      for(U64 fi = 0; fi < br->frame_count && !found; fi += 1)
+      {
+        for(CTRL_HandleNode *hn = br->frames[fi].tree_node->threads.first; hn != 0; hn = hn->next)
+        {
+          if(ctrl_handle_match(hn->v, selected_thread)) { found = 1; break; }
+        }
+      }
+      if(found)
+      {
+        F32 center_x = br->pos.x + br->size.x * 0.5f + padding;
+        F32 center_y = br->pos.y + br->size.y * 0.5f + padding;
+        view_off.x = center_x - canvas_dim.x * 0.5f / zoom;
+        view_off.y = center_y - canvas_dim.y * 0.5f / zoom;
+        refresh_frames = 0;
+        break;
+      }
+    }
+  }
+
+  UI_Parent(canvas_box)
+  {
+    for(U64 bi = 0; bi < layout.branch_count; bi += 1)
+    {
+      RD_PSBranch *br = &layout.branches[bi];
+
+      Vec2F32 scr_pos = scale_2f32(sub_2f32(add_2f32(br->pos, v2f32(padding, padding)), view_off), zoom);
+      Vec2F32 scr_size = scale_2f32(br->size, zoom);
+
+      if(scr_pos.x + scr_size.x < 0 || scr_pos.x > canvas_dim.x ||
+         scr_pos.y + scr_size.y < 0 || scr_pos.y > canvas_dim.y)
+      {
+        continue;
+      }
+
+      B32 contains_selected = 0;
+      for(U64 fi = 0; fi < br->frame_count && !contains_selected; fi += 1)
+      {
+        for(CTRL_HandleNode *hn = br->frames[fi].tree_node->threads.first; hn != 0; hn = hn->next)
+        {
+          if(ctrl_handle_match(hn->v, selected_thread)) { contains_selected = 1; break; }
+        }
+      }
+
+      Vec4F32 bg = node_bg_color;
+      if(contains_selected)
+      {
+        bg.x += highlight_color.x * highlight_color.w;
+        bg.y += highlight_color.y * highlight_color.w;
+        bg.z += highlight_color.z * highlight_color.w;
+      }
+
+      ui_set_next_fixed_x(scr_pos.x);
+      ui_set_next_fixed_y(scr_pos.y);
+      ui_set_next_fixed_width(scr_size.x);
+      ui_set_next_fixed_height(scr_size.y);
+      ui_set_next_background_color(bg);
+      {
+        F32 corner_r = 4.f * zoom;
+        ui_set_next_corner_radius_00(corner_r);
+        ui_set_next_corner_radius_01(corner_r);
+        ui_set_next_corner_radius_10(corner_r);
+        ui_set_next_corner_radius_11(corner_r);
+      }
+
+      UI_Box *branch_box = ui_build_box_from_stringf(
+        UI_BoxFlag_Floating|
+        UI_BoxFlag_DrawBackground|
+        UI_BoxFlag_DrawBorder,
+        "ps_branch_%I64u", bi);
+
+      F32 font_size = Max(7.f, 10.f * zoom);
+      F32 ftr_font_size = Max(7.f, 10.f * zoom);
+
+      //- determine which frame (if any) is the active execution point for the selected thread
+      B32 is_leaf_branch = 0;
+      if(contains_selected && br->frame_count > 0)
+      {
+        for(CTRL_HandleNode *hn = br->frames[0].tree_node->threads.first; hn != 0; hn = hn->next)
+        {
+          if(ctrl_handle_match(hn->v, selected_thread)) { is_leaf_branch = 1; break; }
+        }
+      }
+
+      UI_Parent(branch_box)
+      {
+        F32 y_off = 2.f * zoom;
+        F32 x_pad = 4.f * zoom;
+        F32 arrow_w = 14.f * zoom;
+
+        for(U64 fi = 0; fi < br->frame_count; fi += 1)
+        {
+          B32 is_active_frame = (is_leaf_branch && fi == 0);
+          F32 frame_x = is_active_frame ? (x_pad + arrow_w) : x_pad;
+          F32 frame_w = scr_size.x - x_pad - frame_x;
+
+          //- draw arrow indicator for the active frame
+          if(is_active_frame)
+          {
+            CTRL_Entity *thread_entity = ctrl_entity_from_handle(&d_state->ctrl_entity_store->ctx, selected_thread);
+            Vec4F32 arrow_color = rd_color_from_ctrl_entity(thread_entity);
+            ui_set_next_fixed_x(x_pad);
+            ui_set_next_fixed_y(y_off);
+            ui_set_next_fixed_width(arrow_w);
+            ui_set_next_fixed_height(frame_h * zoom);
+            RD_Font(RD_FontSlot_Icons) UI_FontSize(font_size)
+              UI_TextColor(arrow_color)
+              UI_Flags(UI_BoxFlag_DisableTextTrunc)
+            {
+              ui_build_box_from_stringf(
+                UI_BoxFlag_Floating|UI_BoxFlag_DrawText,
+                "%S###ps_arrow_%I64u", rd_icon_kind_text_table[RD_IconKind_RightArrow], bi);
+            }
+          }
+
+          ui_set_next_fixed_x(frame_x);
+          ui_set_next_fixed_y(y_off);
+          ui_set_next_fixed_width(frame_w);
+          ui_set_next_fixed_height(frame_h * zoom);
+          RD_Font(RD_FontSlot_Code) UI_FontSize(font_size)
+          {
+            UI_Box *frame_box = ui_build_box_from_stringf(
+              UI_BoxFlag_Floating|UI_BoxFlag_Clickable|UI_BoxFlag_Clip,
+              "ps_fr_%I64u_%I64u", bi, fi);
+            UI_Parent(frame_box)
+            {
+              rd_code_label(1.f, 0, code_color, br->frames[fi].name);
+            }
+            UI_Signal frame_sig = ui_signal_from_box(frame_box);
+            if(ui_hovering(frame_sig))
+            {
+              UI_Tooltip { ui_label(br->frames[fi].name); }
+            }
+            if(ui_clicked(frame_sig))
+            {
+              CTRL_CallStackTreeNode *tn = br->frames[fi].tree_node;
+              CTRL_Entity *proc = ctrl_entity_from_handle(&d_state->ctrl_entity_store->ctx, tn->process);
+              CTRL_Entity *module = ctrl_module_from_process_vaddr(proc, tn->vaddr);
+              U64 voff = ctrl_voff_from_vaddr(module, tn->vaddr);
+              DI_Key dbgi_key = ctrl_dbgi_key_from_module(module);
+              D_LineList lines = d_lines_from_dbgi_key_voff(scratch.arena, dbgi_key, voff);
+              if(lines.first != 0)
+              {
+                rd_cmd(RD_CmdKind_FindCodeLocation,
+                       .process   = proc->handle,
+                       .vaddr     = tn->vaddr,
+                       .file_path = lines.first->v.file_path,
+                       .cursor    = lines.first->v.pt);
+              }
+            }
+          }
+          y_off += frame_h * zoom;
+        }
+
+        ui_set_next_fixed_x(0);
+        ui_set_next_fixed_y(scr_size.y - footer_h * zoom);
+        ui_set_next_fixed_width(scr_size.x);
+        ui_set_next_fixed_height(footer_h * zoom);
+        ui_set_next_background_color(footer_bg);
+        {
+          F32 corner_r = 4.f * zoom;
+          ui_set_next_corner_radius_00(0);
+          ui_set_next_corner_radius_01(corner_r);
+          ui_set_next_corner_radius_10(0);
+          ui_set_next_corner_radius_11(corner_r);
+        }
+        UI_Box *footer_box = ui_build_box_from_stringf(
+          UI_BoxFlag_Floating|UI_BoxFlag_DrawBackground|UI_BoxFlag_Clickable,
+          "ps_ftr_bg_%I64u", bi);
+        UI_Parent(footer_box)
+        {
+          ui_set_next_fixed_x(x_pad);
+          ui_set_next_fixed_y(1.f * zoom);
+          ui_set_next_fixed_width(scr_size.x - x_pad * 2.f);
+          ui_set_next_fixed_height(footer_h * zoom - 2.f * zoom);
+          UI_FontSize(ftr_font_size) UI_TextColor(footer_text)
+          {
+            ui_build_box_from_stringf(
+              UI_BoxFlag_Floating|UI_BoxFlag_DrawText|UI_BoxFlag_DisableTruncatedHover,
+              "%S###ps_ftr_%I64u", br->thread_header, bi);
+          }
+        }
+        UI_Signal ftr_sig = ui_signal_from_box(footer_box);
+        if(ui_hovering(ftr_sig))
+        {
+          UI_Tooltip { ui_label(br->thread_header); }
+        }
+      }
+    }
+  }
+
+  //- canvas pan/zoom: processed after children so child clicks take priority
+  {
+    UI_Signal canvas_sig = ui_signal_from_box(canvas_box);
+    if(canvas_sig.scroll.y != 0)
+    {
+      F32 new_zoom = zoom - zoom * canvas_sig.scroll.y / 10.f;
+      new_zoom = Clamp(0.1f, new_zoom, 10.f);
+      Vec2F32 mouse_scr = sub_2f32(ui_mouse(), rect.p0);
+      Vec2F32 mouse_cvs = add_2f32(view_off, scale_2f32(mouse_scr, 1.f/zoom));
+      zoom = new_zoom;
+      Vec2F32 mouse_scr_post = scale_2f32(sub_2f32(mouse_cvs, view_off), zoom);
+      Vec2F32 drift = sub_2f32(mouse_scr_post, mouse_scr);
+      view_off = add_2f32(view_off, scale_2f32(drift, 1.f/zoom));
+    }
+  }
+
+  //- pan overlay: sits behind everything, handles drag panning
+  UI_Parent(canvas_box)
+  {
+    ui_set_next_fixed_x(0);
+    ui_set_next_fixed_y(0);
+    ui_set_next_fixed_width(canvas_dim.x);
+    ui_set_next_fixed_height(canvas_dim.y);
+    UI_Box *pan_box = ui_build_box_from_stringf(
+      UI_BoxFlag_Floating|UI_BoxFlag_Clickable,
+      "ps_pan_overlay");
+    UI_Signal pan_sig = ui_signal_from_box(pan_box);
+    if(ui_dragging(pan_sig))
+    {
+      if(ui_pressed(pan_sig))
+      {
+        rd_cmd(RD_CmdKind_FocusPanel);
+        ui_store_drag_struct(&view_off);
+      }
+      Vec2F32 start_off = *ui_get_drag_struct(Vec2F32);
+      Vec2F32 delta = scale_2f32(ui_drag_delta(), 1.f/zoom);
+      view_off = sub_2f32(start_off, delta);
+    }
+  }
+
+  rd_store_view_param_f32(str8_lit("zoom"), zoom);
+  rd_store_view_param_f32(str8_lit("x"), view_off.x);
+  rd_store_view_param_f32(str8_lit("y"), view_off.y);
+  rd_store_view_param_u64(str8_lit("was_running"), (U64)is_running);
+  rd_store_view_param_u64(str8_lit("refresh_frames"), refresh_frames);
+
+  access_close(access);
+  scratch_end(scratch);
+}

@@ -333,6 +333,35 @@ dr_rect(Rng2F32 dst, Vec4F32 color, F32 corner_radius, F32 border_thickness, F32
   return inst;
 }
 
+//- rjf: lines (oriented thin rects)
+
+internal R_Rect2DInst *
+dr_line(Vec2F32 p0, Vec2F32 p1, Vec4F32 color, F32 thickness, F32 edge_softness)
+{
+  F32 half = thickness * 0.5f;
+  Vec2F32 d = {p1.x - p0.x, p1.y - p0.y};
+  F32 len = sqrt_f32(d.x*d.x + d.y*d.y);
+  if(len < 0.001f) { return 0; }
+  Vec2F32 n = {-d.y/len * half, d.x/len * half};
+  Vec2F32 mid = {(p0.x + p1.x) * 0.5f, (p0.y + p1.y) * 0.5f};
+  F32 half_len = len * 0.5f;
+  Rng2F32 dst = r2f32p(mid.x - half_len, mid.y - half, mid.x + half_len, mid.y + half);
+  F32 angle = atan2_f32(d.y, d.x);
+  F32 c = cos_f32(angle);
+  F32 s = sin_f32(angle);
+  Mat3x3F32 rot = {{
+    {c,  s, 0},
+    {-s, c, 0},
+    {mid.x*(1-c) + mid.y*s, mid.y*(1-c) - mid.x*s, 1},
+  }};
+  Mat3x3F32 old_xform = dr_top_xform2d();
+  Mat3x3F32 combined = mul_3x3f32(rot, old_xform);
+  dr_push_xform2d(combined);
+  R_Rect2DInst *inst = dr_rect(dst, color, 0, 0, edge_softness);
+  dr_pop_xform2d();
+  return inst;
+}
+
 //- rjf: images
 
 internal inline R_Rect2DInst *

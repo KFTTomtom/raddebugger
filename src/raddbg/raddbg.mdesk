@@ -52,6 +52,7 @@ RD_ViewTabFastPathTable:
   {Bitmap          "Bitmap"            bitmap      bitmap          ""                Bitmap                }
   {Color           "Color"             color       color           ""                Palette               }
   {Geo3D           "Geometry (3D)"     geo3d       geo3d           ""                Cube                  }
+  {ParallelStacks  "Parallel Stacks"   parallel_stacks  parallel_stacks  ""         Threads               }
 }
 
 @table(name   display_name    name_lower    icon)
@@ -282,6 +283,10 @@ RD_VocabTable:
       //- rjf: cache line markers
       @default(0) @display_name('Cache Line Markers') @description("Controls whether or not CPU cache line boundaries (64 bytes) are drawn in watch view expansions. Useful for memory layout optimization.")
         'cache_line_markers': bool,
+      
+      //- rjf: parallel stacks raw mode
+      @default(0) @display_name('Parallel Stacks Raw') @description("When OFF (default), the Parallel Stacks view hides inlined frames and unresolved addresses, and removes threads with no resolved symbols. When ON, shows all frames including inlined and raw addresses.")
+        'parallel_stacks_raw': bool,
       
       //- rjf: occluding background settings
       @default(0) @display_name('Opaque Backgrounds') @description("Controls whether or not all floating background colors are forced to be fully opaque.")

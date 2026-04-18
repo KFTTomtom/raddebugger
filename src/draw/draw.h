@@ -178,6 +178,9 @@ internal F32                        dr_top_transparency(void);
 //- rjf: rectangles
 internal inline R_Rect2DInst *dr_rect(Rng2F32 dst, Vec4F32 color, F32 corner_radius, F32 border_thickness, F32 edge_softness);
 
+//- rjf: lines (oriented thin rects)
+internal R_Rect2DInst *dr_line(Vec2F32 p0, Vec2F32 p1, Vec4F32 color, F32 thickness, F32 edge_softness);
+
 //- rjf: images
 internal inline R_Rect2DInst *dr_img(Rng2F32 dst, Rng2F32 src, R_Handle texture, Vec4F32 color, F32 corner_radius, F32 border_thickness, F32 edge_softness);
 
