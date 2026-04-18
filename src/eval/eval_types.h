@@ -26,6 +26,7 @@ enum
 
 global read_only E_Member e_member_nil = {E_MemberKind_Null};
 global read_only E_Type e_type_nil = {E_TypeKind_Null};
+global B32 e_members_sort_by_memory_layout = 0;
 E_TYPE_EXPAND_INFO_FUNCTION_DEF(default);
 E_TYPE_EXPAND_RANGE_FUNCTION_DEF(default);
 E_TYPE_EXPAND_ID_FROM_NUM_FUNCTION_DEF(identity);

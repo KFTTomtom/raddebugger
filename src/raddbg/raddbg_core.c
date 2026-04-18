@@ -1956,6 +1956,7 @@ rd_view_ui(Rng2F32 rect)
         RD_WatchViewState *ewv = rd_view_state(RD_WatchViewState);
         UI_ScrollPt2 scroll_pos = rd_view_scroll_pos();
         F32 entity_hover_t_rate = rd_setting_b32_from_name(str8_lit("hover_animations")) ? (1 - pow_f32(2, (-60.f * rd_state->frame_dt))) : 1.f;
+        e_members_sort_by_memory_layout = rd_setting_b32_from_name(str8_lit("cache_line_markers"));
         B32 is_first_frame = 0;
         if(ewv->initialized == 0)
         {
@@ -3539,7 +3540,8 @@ rd_view_ui(Rng2F32 rect)
                     ////////////////////
                     //- rjf: draw start of cache lines in expansions
                     //
-                    if(row->eval.space.kind == CTRL_EvalSpaceKind_Entity && row_info->view_ui_rule == &rd_nil_view_ui_rule)
+                    if(rd_setting_b32_from_name(str8_lit("cache_line_markers")) &&
+                       row->eval.space.kind == CTRL_EvalSpaceKind_Entity && row_info->view_ui_rule == &rd_nil_view_ui_rule)
                     {
                       CTRL_Entity *space_entity = rd_ctrl_entity_from_eval_space(row->eval.space);
                       if(space_entity->kind == CTRL_EntityKind_Process)
@@ -3560,7 +3562,8 @@ rd_view_ui(Rng2F32 rect)
                     //////////////
                     //- rjf: draw mid-row cache line boundaries in expansions
                     //
-                    if(row->eval.space.kind == CTRL_EvalSpaceKind_Entity && row_info->view_ui_rule == &rd_nil_view_ui_rule)
+                    if(rd_setting_b32_from_name(str8_lit("cache_line_markers")) &&
+                       row->eval.space.kind == CTRL_EvalSpaceKind_Entity && row_info->view_ui_rule == &rd_nil_view_ui_rule)
                     {
                       CTRL_Entity *space_entity = rd_ctrl_entity_from_eval_space(row->eval.space);
                       if(space_entity->kind == CTRL_EntityKind_Process &&

@@ -1277,6 +1277,16 @@ e_type_qsort_compare_members_offset(E_Member *a, E_Member *b)
   {
     result = +1;
   }
+  else if(!e_members_sort_by_memory_layout &&
+          a->inheritance_key_chain.count < b->inheritance_key_chain.count)
+  {
+    result = -1;
+  }
+  else if(!e_members_sort_by_memory_layout &&
+          a->inheritance_key_chain.count > b->inheritance_key_chain.count)
+  {
+    result = +1;
+  }
   else if(a->off < b->off)
   {
     result = -1;
