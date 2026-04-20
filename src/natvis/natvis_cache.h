@@ -34,6 +34,7 @@ struct NV_Cache
   NV_CacheEntry *first;
   NV_CacheEntry *last;
   U64 count;
+  U64 generation;
 };
 
 ////////////////////////////////

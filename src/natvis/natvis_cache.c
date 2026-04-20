@@ -69,6 +69,7 @@ nv_cache_load_file(NV_Cache *cache, String8 path)
   entry->arena = entry_arena;
   DLLPushBack(cache->first, cache->last, entry);
   cache->count += 1;
+  cache->generation += 1;
   
   return nv_file;
 }
@@ -90,6 +91,7 @@ nv_cache_load_from_string(NV_Cache *cache, String8 xml_data, String8 source_name
   entry->arena = entry_arena;
   DLLPushBack(cache->first, cache->last, entry);
   cache->count += 1;
+  cache->generation += 1;
   
   return nv_file;
 }
@@ -202,5 +204,6 @@ nv_cache_hot_reload(NV_Cache *cache)
     }
   }
   
+  if(reloaded > 0) { cache->generation += 1; }
   return reloaded;
 }

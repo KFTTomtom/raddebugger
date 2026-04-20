@@ -399,17 +399,51 @@ nv_display_string_to_tag_expr(Arena *arena, NV_DisplayString *ds, String8 *templ
 ////////////////////////////////
 //~ NatVis TypeDef → type_view expression
 
+internal B32
+nv_expr_looks_like_count(String8 expr)
+{
+  String8 needles[] = {
+    str8_lit_comp("Num"), str8_lit_comp("Count"), str8_lit_comp("Size"),
+    str8_lit_comp("Length"), str8_lit_comp("Len"),
+  };
+  for(U64 i = 0; i < ArrayCount(needles); i += 1)
+  {
+    if(str8_find_needle(expr, 0, needles[i], StringMatchFlag_CaseInsensitive) < expr.size)
+    {
+      return 1;
+    }
+  }
+  return 0;
+}
+
 internal String8
 nv_summary_expr_from_typedef(Arena *arena, NV_TypeDef *td, String8 *template_args, U64 template_arg_count)
 {
   if(td == 0) { return str8_zero(); }
   
+  // priority 1: if there's an ArrayItems in the Expand, use the size expression —
+  // this is what makes summaries like "ArrayNum" work for TArray, TSet, etc.
+  if(td->expand != 0)
+  {
+    for(NV_ExpandItem *ei = td->expand->first_item; ei != 0; ei = ei->next)
+    {
+      if(ei->kind == NV_ExpandItemKind_ArrayItems && ei->array_items.size_expr.size > 0)
+      {
+        return nv_translate_expr(arena, ei->array_items.size_expr, template_args, template_arg_count);
+      }
+    }
+  }
+  
+  // priority 2: scan unconditional DisplayStrings for count/size expressions
+  NV_DisplayPart *first_expr_part = 0;
   for(NV_DisplayString *ds = td->first_display_string; ds != 0; ds = ds->next)
   {
     if(ds->condition.size != 0) { continue; }
     for(NV_DisplayPart *p = ds->first_part; p != 0; p = p->next)
     {
-      if(p->kind == NV_DisplayPartKind_Expression)
+      if(p->kind != NV_DisplayPartKind_Expression) { continue; }
+      if(first_expr_part == 0) { first_expr_part = p; }
+      if(nv_expr_looks_like_count(p->text))
       {
         String8 translated = nv_translate_expr(arena, p->text, template_args, template_arg_count);
         return nv_apply_format_spec(arena, translated, p->format_spec);
@@ -417,6 +451,14 @@ nv_summary_expr_from_typedef(Arena *arena, NV_TypeDef *td, String8 *template_arg
     }
   }
   
+  // priority 3: first expression from the first unconditional DisplayString
+  if(first_expr_part != 0)
+  {
+    String8 translated = nv_translate_expr(arena, first_expr_part->text, template_args, template_arg_count);
+    return nv_apply_format_spec(arena, translated, first_expr_part->format_spec);
+  }
+  
+  // priority 4: first expression from any DisplayString (even conditional)
   if(td->first_display_string != 0)
   {
     for(NV_DisplayPart *p = td->first_display_string->first_part; p != 0; p = p->next)
@@ -437,7 +479,7 @@ nv_type_view_expr_from_typedef(Arena *arena, NV_TypeDef *td, String8 *template_a
 {
   if(td == 0) { return str8_zero(); }
   
-  // priority 1: if there is an Expand with a single ArrayItems, generate slice/array expression
+  // priority 1: if there is an Expand with ArrayItems or IndexListItems, generate array expression
   if(td->expand != 0)
   {
     for(NV_ExpandItem *ei = td->expand->first_item; ei != 0; ei = ei->next)
@@ -449,6 +491,30 @@ nv_type_view_expr_from_typedef(Arena *arena, NV_TypeDef *td, String8 *template_a
         if(size_e.size > 0 && ptr_e.size > 0)
         {
           return push_str8f(arena, "array(%S, %S)", ptr_e, size_e);
+        }
+      }
+      if(ei->kind == NV_ExpandItemKind_IndexListItems)
+      {
+        String8 size_e = nv_translate_expr(arena, ei->index_list_items.size_expr, template_args, template_arg_count);
+        String8 vn = nv_translate_expr(arena, ei->index_list_items.value_node_expr, template_args, template_arg_count);
+        if(size_e.size > 0 && vn.size > 0)
+        {
+          // ValueNode typically looks like "base_expr[$i]".
+          // Strip the trailing [$i] to extract the pointer base expression.
+          U64 bracket_pos = vn.size;
+          for(U64 k = vn.size; k > 0; k -= 1)
+          {
+            if(vn.str[k - 1] == '[')
+            {
+              bracket_pos = k - 1;
+              break;
+            }
+          }
+          if(bracket_pos < vn.size)
+          {
+            String8 ptr_e = str8(vn.str, bracket_pos);
+            return push_str8f(arena, "array(%S, %S)", ptr_e, size_e);
+          }
         }
       }
     }
