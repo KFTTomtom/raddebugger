@@ -1721,10 +1721,23 @@ e_push_irtree_and_type_from_expr(Arena *arena, E_IRTreeAndType *root_parent, E_I
                 {
                   generated = 1;
                   result = e_push_irtree_and_type_from_expr(arena, parent, &e_default_identifier_resolution_rule, disallow_autohooks, 1, inst->inst_expr);
+                  log_infof("[WC-RESOLVE] identifier '%S' matched wildcard '%S', eval type_key=(kind=%u,idx=%u,dbgi=%u), inst type_key=(kind=%u,idx=%u,dbgi=%u)",
+                            string, inst->name,
+                            result.type_key.u32[0], result.type_key.u32[1], result.type_key.u32[2],
+                            inst->type_key.u32[0], inst->type_key.u32[1], inst->type_key.u32[2]);
                   if(e_type_key_match(e_type_key_zero(), result.type_key) &&
                      !e_type_key_match(e_type_key_zero(), inst->type_key))
                   {
                     result.type_key = inst->type_key;
+                    log_infof("[WC-RESOLVE]   => FALLBACK used: inst->type_key applied");
+                  }
+                  else if(!e_type_key_match(e_type_key_zero(), result.type_key))
+                  {
+                    log_infof("[WC-RESOLVE]   => standard eval resolved type_key successfully");
+                  }
+                  else
+                  {
+                    log_infof("[WC-RESOLVE]   => BOTH zero — type resolution FAILED");
                   }
                   break;
                 }
@@ -1895,6 +1908,12 @@ e_push_irtree_and_type_from_expr(Arena *arena, E_IRTreeAndType *root_parent, E_I
                 
                 // rjf: find match
                 DI_Match match = di_match_from_string(string, match_disambiguating_idx, e_base_ctx->primary_dbg_info->dbgi_key, 0);
+                B32 dbgmatch_log = (e_cache->first_wildcard_inst != 0);
+                if(dbgmatch_log)
+                {
+                  log_infof("[DBGINFO-MATCH] di_match_from_string('%S') => idx=%u, section=%u",
+                            string, match.idx, match.section_kind);
+                }
                 if(match.idx == 0)
                 {
                   String8List namespaceified_strings = {0};
@@ -1906,6 +1925,11 @@ e_push_irtree_and_type_from_expr(Arena *arena, E_IRTreeAndType *root_parent, E_I
                     U64 name_size = 0;
                     U8 *name_ptr = rdi_string_from_idx(rdi, procedure->name_string_idx, &name_size);
                     String8 containing_procedure_name = str8(name_ptr, name_size);
+                    if(dbgmatch_log)
+                    {
+                      log_infof("[DBGINFO-MATCH] namespaceify: procedure='%S', identifier='%S'",
+                                containing_procedure_name, string);
+                    }
                     U64 last_past_scope_resolution_pos = 0;
                     for(;;)
                     {
@@ -1924,11 +1948,17 @@ e_push_irtree_and_type_from_expr(Arena *arena, E_IRTreeAndType *root_parent, E_I
                   }
                   for(String8Node *n = namespaceified_strings.first; n != 0; n = n->next)
                   {
+                    if(dbgmatch_log) { log_infof("[DBGINFO-MATCH] trying namespaceified: '%S'", n->string); }
                     match = di_match_from_string(n->string, 0, e_base_ctx->primary_dbg_info->dbgi_key, 0);
                     if(match.idx != 0)
                     {
+                      if(dbgmatch_log) { log_infof("[DBGINFO-MATCH]   => FOUND! idx=%u, section=%u", match.idx, match.section_kind); }
                       break;
                     }
+                  }
+                  if(dbgmatch_log && match.idx == 0)
+                  {
+                    log_infof("[DBGINFO-MATCH]   => namespaceify FAILED for '%S'", string);
                   }
                 }
                 

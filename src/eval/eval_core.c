@@ -1220,22 +1220,62 @@ e_push_auto_hook_matches_from_type_key(Arena *arena, E_TypeKey type_key)
                   inst->name = wildcard_inst_name_node ? wildcard_inst_name_node->string : str8_zero();
                   inst->inst_expr = e_parse_from_string(wildcard_inst_string).expr;
                   inst->type_key = e_type_key_zero();
+                  
+                  log_infof("[WC-CAPTURE] pattern matched type '%S', wildcard name='%S', captured text='%S'",
+                            type_string, inst->name, wildcard_inst_string);
+                  
+                  //- rjf: try to resolve the wildcard's type_key by scanning
+                  // the parent type's member types. This handles function-scoped
+                  // types (e.g. FSquadRef inside TArray<FSquadRef>) that
+                  // string-based lookup cannot resolve — we find a member whose
+                  // pointee type name matches the captured wildcard text.
+                  if(wildcard_inst_string.size > 0)
                   {
-                    DI_Match type_match = di_match_from_string(wildcard_inst_string, 0, e_base_ctx->primary_dbg_info->dbgi_key, 0);
-                    if(type_match.idx != 0 && type_match.section_kind == RDI_SectionKind_TypeNodes)
+                    E_Type *parent_type = e_type_from_key(type_key);
+                    if(parent_type != 0 && parent_type->count > 0 && parent_type->members != 0)
                     {
-                      Access *wc_access = access_open();
-                      RDI_Parsed *wc_rdi = di_rdi_from_key(wc_access, type_match.key, 0, 0);
-                      for EachIndex(wc_idx, e_base_ctx->dbg_infos_count)
+                      log_infof("[WC-MEMBER-SCAN] parent type '%S' has %llu members, scanning for '%S'...",
+                                parent_type->name, parent_type->count, wildcard_inst_string);
+                      for(U64 mi = 0; mi < parent_type->count && e_type_key_match(inst->type_key, e_type_key_zero()); mi += 1)
                       {
-                        if(e_base_ctx->dbg_infos[wc_idx].rdi == wc_rdi)
+                        E_TypeKey member_type_key = parent_type->members[mi].type_key;
+                        E_TypeKey unwrapped = member_type_key;
+                        for(U32 depth = 0; depth < 4; depth += 1)
                         {
-                          RDI_TypeNode *wc_type_node = rdi_element_from_name_idx(wc_rdi, TypeNodes, type_match.idx);
-                          inst->type_key = e_type_key_ext(e_type_kind_from_rdi(wc_type_node->kind), type_match.idx, (U32)wc_idx+1);
-                          break;
+                          E_TypeKind k = e_type_kind_from_key(unwrapped);
+                          if(k == E_TypeKind_Ptr || k == E_TypeKind_LRef || k == E_TypeKind_RRef ||
+                             k == E_TypeKind_Array || k == E_TypeKind_Modifier || k == E_TypeKind_Alias)
+                          {
+                            unwrapped = e_type_key_direct(unwrapped);
+                          }
+                          else { break; }
+                        }
+                        E_TypeKind uwk = e_type_kind_from_key(unwrapped);
+                        if(uwk == E_TypeKind_Struct || uwk == E_TypeKind_Class ||
+                           uwk == E_TypeKind_Union  || uwk == E_TypeKind_Enum)
+                        {
+                          String8 member_base_name = e_type_string_from_key(scratch.arena, unwrapped);
+                          member_base_name = str8_skip_chop_whitespace(member_base_name);
+                          log_infof("[WC-MEMBER-SCAN]   member[%llu] '%S' base_type='%S' vs wildcard='%S' => %s",
+                                    mi, parent_type->members[mi].name, member_base_name, wildcard_inst_string,
+                                    str8_match(member_base_name, wildcard_inst_string, 0) ? "MATCH" : "no");
+                          if(str8_match(member_base_name, wildcard_inst_string, 0))
+                          {
+                            inst->type_key = unwrapped;
+                            log_infof("[WC-MEMBER-SCAN]   => resolved type_key via member scan (kind=%u, idx=%u, dbgi=%u)",
+                                      unwrapped.u32[0], unwrapped.u32[1], unwrapped.u32[2]);
+                          }
                         }
                       }
-                      access_close(wc_access);
+                      if(e_type_key_match(inst->type_key, e_type_key_zero()))
+                      {
+                        log_infof("[WC-MEMBER-SCAN]   => NO match found in any member");
+                      }
+                    }
+                    else
+                    {
+                      log_infof("[WC-MEMBER-SCAN] parent type has no members (count=%llu, members=%p)",
+                                parent_type ? parent_type->count : 0, parent_type ? (void*)parent_type->members : 0);
                     }
                   }
                   if(wildcard_inst_name_node)
