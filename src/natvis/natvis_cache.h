@@ -47,6 +47,7 @@ internal NV_File * nv_cache_load_from_string(NV_Cache *cache, String8 xml_data, 
 internal void      nv_cache_remove_by_path(NV_Cache *cache, String8 path);
 
 internal NV_TypeDef *nv_cache_find_type(NV_Cache *cache, String8 type_name, NV_TypeMatch *out_match);
+internal NV_TypeDef *nv_cache_find_type_ex(NV_Cache *cache, String8 type_name, NV_TypeMatch *out_match, NV_File **out_file);
 
 // hot-reload: check file timestamps, re-parse changed files
 internal U64 nv_cache_hot_reload(NV_Cache *cache);
