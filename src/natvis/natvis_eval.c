@@ -2,6 +2,220 @@
 // Licensed under the MIT license (https://opensource.org/license/mit/)
 
 ////////////////////////////////
+//~ NatVis Intrinsic Call Inlining — helpers
+
+internal B32
+nv_is_ident_char(U8 c)
+{
+  return ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+          (c >= '0' && c <= '9') || c == '_');
+}
+
+// Parse a comma-separated argument list between balanced parens.
+// Caller must ensure expr.str[0] == '('. Returns argument strings and
+// advances *out_end past the closing ')'.
+internal U64
+nv_parse_call_args(String8 expr, U64 open_paren, String8 *out_args, U64 max_args, U64 *out_end)
+{
+  U64 count = 0;
+  U64 i = open_paren + 1; // skip '('
+  U64 depth = 1;
+  U64 arg_start = i;
+  
+  while(i < expr.size && depth > 0)
+  {
+    U8 c = expr.str[i];
+    if(c == '(' || c == '<' || c == '[') { depth += 1; }
+    else if(c == ')' || c == '>' || c == ']')
+    {
+      depth -= 1;
+      if(depth == 0)
+      {
+        // closing paren: capture last argument
+        String8 arg = str8_skip_chop_whitespace(str8(expr.str + arg_start, i - arg_start));
+        if(arg.size > 0 && count < max_args)
+        {
+          out_args[count] = arg;
+          count += 1;
+        }
+        *out_end = i + 1;
+        return count;
+      }
+    }
+    else if(c == ',' && depth == 1)
+    {
+      String8 arg = str8_skip_chop_whitespace(str8(expr.str + arg_start, i - arg_start));
+      if(count < max_args)
+      {
+        out_args[count] = arg;
+        count += 1;
+      }
+      arg_start = i + 1;
+    }
+    i += 1;
+  }
+  
+  // unbalanced parens: treat as no match
+  *out_end = i;
+  return count;
+}
+
+// Substitute parameter names with argument values in an intrinsic body.
+internal String8
+nv_substitute_intrinsic_params(Arena *arena, String8 body, NV_Intrinsic *intr, String8 *args, U64 arg_count)
+{
+  String8List parts = {0};
+  B32 any_sub = 0;
+  U64 i = 0;
+  
+  while(i < body.size)
+  {
+    B32 found = 0;
+    U64 param_idx = 0;
+    for(NV_IntrinsicParam *p = intr->first_param; p != 0; p = p->next, param_idx += 1)
+    {
+      if(param_idx >= arg_count) { break; }
+      if(p->name.size == 0) { continue; }
+      if(i + p->name.size > body.size) { continue; }
+      
+      String8 window = str8(body.str + i, p->name.size);
+      if(!str8_match(window, p->name, 0)) { continue; }
+      
+      B32 left_ok = (i == 0) || !nv_is_ident_char(body.str[i - 1]);
+      B32 right_ok = (i + p->name.size >= body.size) || !nv_is_ident_char(body.str[i + p->name.size]);
+      
+      if(left_ok && right_ok)
+      {
+        str8_list_push(arena, &parts, str8_lit("("));
+        str8_list_push(arena, &parts, args[param_idx]);
+        str8_list_push(arena, &parts, str8_lit(")"));
+        i += p->name.size;
+        found = 1;
+        any_sub = 1;
+        break;
+      }
+    }
+    
+    if(!found)
+    {
+      str8_list_push(arena, &parts, str8(body.str + i, 1));
+      i += 1;
+    }
+  }
+  
+  if(!any_sub) { return body; }
+  return str8_list_join(arena, &parts, 0);
+}
+
+// Single-pass inline: scan for identifier( patterns, match against intrinsics
+internal String8
+nv_inline_intrinsic_calls_once(Arena *arena, String8 expr, NV_Intrinsic *type_intrinsics, NV_Intrinsic *global_intrinsics, B32 *did_inline)
+{
+  *did_inline = 0;
+  String8List parts = {0};
+  U64 i = 0;
+  
+  while(i < expr.size)
+  {
+    // strip "this->" prefix before potential intrinsic name
+    U64 call_start = i;
+    B32 had_this = 0;
+    if(i + 6 <= expr.size && MemoryCompare(expr.str + i, "this->", 6) == 0)
+    {
+      had_this = 1;
+    }
+    
+    // look for an identifier
+    U64 id_start = had_this ? i + 6 : i;
+    if(id_start < expr.size && nv_is_ident_char(expr.str[id_start]) &&
+       !(expr.str[id_start] >= '0' && expr.str[id_start] <= '9'))
+    {
+      U64 id_end = id_start;
+      while(id_end < expr.size && nv_is_ident_char(expr.str[id_end])) { id_end += 1; }
+      String8 name = str8(expr.str + id_start, id_end - id_start);
+      
+      // must not be preceded by an ident char (unless it's "this->")
+      B32 left_ok = had_this || (call_start == 0) || !nv_is_ident_char(expr.str[call_start - 1]);
+      
+      if(left_ok)
+      {
+        // check for '(' right after identifier (skip whitespace)
+        U64 after_name = id_end;
+        while(after_name < expr.size && (expr.str[after_name] == ' ' || expr.str[after_name] == '\t')) { after_name += 1; }
+        
+        if(after_name < expr.size && expr.str[after_name] == '(')
+        {
+          // try to find matching intrinsic
+          NV_Intrinsic *found = nv_intrinsic_from_name(type_intrinsics, name);
+          if(found == 0) { found = nv_intrinsic_from_name(global_intrinsics, name); }
+          
+          if(found != 0)
+          {
+            String8 call_args[16] = {0};
+            U64 call_end = 0;
+            U64 arg_count = nv_parse_call_args(expr, after_name, call_args, ArrayCount(call_args), &call_end);
+            
+            // substitute params in the intrinsic body
+            String8 inlined = nv_substitute_intrinsic_params(arena, found->expression, found, call_args, arg_count);
+            
+            // wrap in parens to preserve evaluation order
+            str8_list_push(arena, &parts, str8_lit("("));
+            str8_list_push(arena, &parts, inlined);
+            str8_list_push(arena, &parts, str8_lit(")"));
+            
+            i = call_end;
+            *did_inline = 1;
+            continue;
+          }
+        }
+        
+        // also handle no-arg intrinsic called without parens: "this->name" at end
+        // or followed by non-identifier (e.g. "->", ".", ",")
+        if(had_this)
+        {
+          NV_Intrinsic *found = nv_intrinsic_from_name(type_intrinsics, name);
+          if(found == 0) { found = nv_intrinsic_from_name(global_intrinsics, name); }
+          
+          if(found != 0 && found->param_count == 0 &&
+             (after_name >= expr.size || expr.str[after_name] != '('))
+          {
+            str8_list_push(arena, &parts, str8_lit("("));
+            str8_list_push(arena, &parts, found->expression);
+            str8_list_push(arena, &parts, str8_lit(")"));
+            i = id_end;
+            *did_inline = 1;
+            continue;
+          }
+        }
+      }
+    }
+    
+    // no intrinsic match: emit current character
+    str8_list_push(arena, &parts, str8(expr.str + i, 1));
+    i += 1;
+  }
+  
+  if(!(*did_inline)) { return expr; }
+  return str8_list_join(arena, &parts, 0);
+}
+
+internal String8
+nv_inline_intrinsic_calls(Arena *arena, String8 expr, NV_Intrinsic *type_intrinsics, NV_Intrinsic *global_intrinsics)
+{
+  if(expr.size == 0) { return expr; }
+  if(type_intrinsics == 0 && global_intrinsics == 0) { return expr; }
+  
+  String8 result = expr;
+  for(U64 depth = 0; depth < NV_INTRINSIC_MAX_RECURSION; depth += 1)
+  {
+    B32 did_inline = 0;
+    result = nv_inline_intrinsic_calls_once(arena, result, type_intrinsics, global_intrinsics, &did_inline);
+    if(!did_inline) { break; }
+  }
+  return result;
+}
+
+////////////////////////////////
 //~ NatVis Expression Translation
 
 internal String8

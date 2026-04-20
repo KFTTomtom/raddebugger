@@ -58,6 +58,31 @@ struct NV_StringView
 };
 
 ////////////////////////////////
+//~ NatVis Intrinsic (helper functions defined in XML)
+
+typedef struct NV_IntrinsicParam NV_IntrinsicParam;
+struct NV_IntrinsicParam
+{
+  NV_IntrinsicParam *next;
+  String8 name;
+  String8 type;
+};
+
+typedef struct NV_Intrinsic NV_Intrinsic;
+struct NV_Intrinsic
+{
+  NV_Intrinsic *next;
+  String8 name;
+  String8 expression;
+  B32 side_effect;
+  String8 category;
+  String8 return_type;
+  NV_IntrinsicParam *first_param;
+  NV_IntrinsicParam *last_param;
+  U64 param_count;
+};
+
+////////////////////////////////
 //~ NatVis Expand Item Kinds
 
 typedef enum NV_ExpandItemKind
@@ -246,7 +271,9 @@ struct NV_TypeDef
   String8List alternative_names;
   NV_Priority priority;
   B32 inheritable;
-  B32 has_intrinsic;
+  NV_Intrinsic *first_intrinsic;
+  NV_Intrinsic *last_intrinsic;
+  U64 intrinsic_count;
   NV_DisplayString *first_display_string;
   NV_DisplayString *last_display_string;
   NV_StringView *string_view;
@@ -261,6 +288,9 @@ struct NV_File
 {
   Arena *arena;
   String8 path;
+  NV_Intrinsic *first_intrinsic;
+  NV_Intrinsic *last_intrinsic;
+  U64 intrinsic_count;
   NV_TypeDef *first_type;
   NV_TypeDef *last_type;
   U64 type_count;
@@ -283,5 +313,6 @@ struct NV_TypeMatch
 internal NV_File *     nv_file_from_xml(Arena *arena, NV_XMLNode *xml_root, String8 file_path);
 internal NV_TypeMatch  nv_type_match(String8 pattern, String8 type_name);
 internal NV_TypeDef *  nv_type_def_from_type_name(NV_File *file, String8 type_name);
+internal NV_Intrinsic *nv_intrinsic_from_name(NV_Intrinsic *list, String8 name);
 
 #endif // NATVIS_TYPES_H

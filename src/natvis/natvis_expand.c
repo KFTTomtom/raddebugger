@@ -4,8 +4,16 @@
 ////////////////////////////////
 //~ NatVis Expansion — produce output items from an Expand block
 
+// Helper: translate an expression and then inline intrinsic calls
+internal String8
+nv_translate_and_inline(Arena *arena, String8 expr, String8 *template_args, U64 template_arg_count, NV_Intrinsic *type_intr, NV_Intrinsic *global_intr)
+{
+  String8 translated = nv_translate_expr(arena, expr, template_args, template_arg_count);
+  return nv_inline_intrinsic_calls(arena, translated, type_intr, global_intr);
+}
+
 internal NV_OutputItemList
-nv_expand_items_from_expand(Arena *arena, NV_Expand *expand, String8 *template_args, U64 template_arg_count)
+nv_expand_items_from_expand_ex(Arena *arena, NV_Expand *expand, String8 *template_args, U64 template_arg_count, NV_Intrinsic *type_intrinsics, NV_Intrinsic *global_intrinsics)
 {
   NV_OutputItemList out = {0};
   if(expand == 0) { return out; }
@@ -18,16 +26,15 @@ nv_expand_items_from_expand(Arena *arena, NV_Expand *expand, String8 *template_a
       {
         NV_OutputItem *oi = push_array(arena, NV_OutputItem, 1);
         oi->name = ei->item.name;
-        oi->expression = nv_translate_expr(arena, ei->item.expression, template_args, template_arg_count);
+        oi->expression = nv_translate_and_inline(arena, ei->item.expression, template_args, template_arg_count, type_intrinsics, global_intrinsics);
         SLLQueuePush(out.first, out.last, oi);
         out.count += 1;
       } break;
       
       case NV_ExpandItemKind_ArrayItems:
       {
-        // emit a single synthetic item that uses the array() lens
-        String8 size_e = nv_translate_expr(arena, ei->array_items.size_expr, template_args, template_arg_count);
-        String8 ptr_e = nv_translate_expr(arena, ei->array_items.value_pointer_expr, template_args, template_arg_count);
+        String8 size_e = nv_translate_and_inline(arena, ei->array_items.size_expr, template_args, template_arg_count, type_intrinsics, global_intrinsics);
+        String8 ptr_e = nv_translate_and_inline(arena, ei->array_items.value_pointer_expr, template_args, template_arg_count, type_intrinsics, global_intrinsics);
         if(size_e.size > 0 && ptr_e.size > 0)
         {
           NV_OutputItem *oi = push_array(arena, NV_OutputItem, 1);
@@ -40,9 +47,8 @@ nv_expand_items_from_expand(Arena *arena, NV_Expand *expand, String8 *template_a
       
       case NV_ExpandItemKind_IndexListItems:
       {
-        // can't fully expand without runtime eval; emit a placeholder expression
-        String8 size_e = nv_translate_expr(arena, ei->index_list_items.size_expr, template_args, template_arg_count);
-        String8 val_e = nv_translate_expr(arena, ei->index_list_items.value_node_expr, template_args, template_arg_count);
+        String8 size_e = nv_translate_and_inline(arena, ei->index_list_items.size_expr, template_args, template_arg_count, type_intrinsics, global_intrinsics);
+        String8 val_e = nv_translate_and_inline(arena, ei->index_list_items.value_node_expr, template_args, template_arg_count, type_intrinsics, global_intrinsics);
         NV_OutputItem *oi = push_array(arena, NV_OutputItem, 1);
         oi->name = str8_lit("[indexed]");
         oi->expression = push_str8f(arena, "/* IndexListItems: size=%S, node=%S */", size_e, val_e);
@@ -52,7 +58,7 @@ nv_expand_items_from_expand(Arena *arena, NV_Expand *expand, String8 *template_a
       
       case NV_ExpandItemKind_LinkedListItems:
       {
-        String8 head_e = nv_translate_expr(arena, ei->linked_list_items.head_pointer_expr, template_args, template_arg_count);
+        String8 head_e = nv_translate_and_inline(arena, ei->linked_list_items.head_pointer_expr, template_args, template_arg_count, type_intrinsics, global_intrinsics);
         if(head_e.size > 0)
         {
           NV_OutputItem *oi = push_array(arena, NV_OutputItem, 1);
@@ -73,7 +79,7 @@ nv_expand_items_from_expand(Arena *arena, NV_Expand *expand, String8 *template_a
         }
         else if(ei->synthetic.watch_expression.size > 0)
         {
-          oi->expression = nv_translate_expr(arena, ei->synthetic.watch_expression, template_args, template_arg_count);
+          oi->expression = nv_translate_and_inline(arena, ei->synthetic.watch_expression, template_args, template_arg_count, type_intrinsics, global_intrinsics);
         }
         else
         {
@@ -82,10 +88,9 @@ nv_expand_items_from_expand(Arena *arena, NV_Expand *expand, String8 *template_a
         SLLQueuePush(out.first, out.last, oi);
         out.count += 1;
         
-        // recurse into nested expand
         if(ei->synthetic.expand != 0)
         {
-          NV_OutputItemList sub = nv_expand_items_from_expand(arena, ei->synthetic.expand, template_args, template_arg_count);
+          NV_OutputItemList sub = nv_expand_items_from_expand_ex(arena, ei->synthetic.expand, template_args, template_arg_count, type_intrinsics, global_intrinsics);
           for(NV_OutputItem *si = sub.first; si != 0; )
           {
             NV_OutputItem *next = si->next;
@@ -101,7 +106,7 @@ nv_expand_items_from_expand(Arena *arena, NV_Expand *expand, String8 *template_a
       {
         NV_OutputItem *oi = push_array(arena, NV_OutputItem, 1);
         oi->name = str8_lit("[base]");
-        oi->expression = nv_translate_expr(arena, ei->expanded_item.expression, template_args, template_arg_count);
+        oi->expression = nv_translate_and_inline(arena, ei->expanded_item.expression, template_args, template_arg_count, type_intrinsics, global_intrinsics);
         SLLQueuePush(out.first, out.last, oi);
         out.count += 1;
       } break;
@@ -124,6 +129,12 @@ nv_expand_items_from_expand(Arena *arena, NV_Expand *expand, String8 *template_a
   }
   
   return out;
+}
+
+internal NV_OutputItemList
+nv_expand_items_from_expand(Arena *arena, NV_Expand *expand, String8 *template_args, U64 template_arg_count)
+{
+  return nv_expand_items_from_expand_ex(arena, expand, template_args, template_arg_count, 0, 0);
 }
 
 ////////////////////////////////

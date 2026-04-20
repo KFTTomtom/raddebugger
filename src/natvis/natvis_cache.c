@@ -113,13 +113,14 @@ nv_cache_remove_by_path(NV_Cache *cache, String8 path)
 }
 
 internal NV_TypeDef *
-nv_cache_find_type(NV_Cache *cache, String8 type_name, NV_TypeMatch *out_match)
+nv_cache_find_type_ex(NV_Cache *cache, String8 type_name, NV_TypeMatch *out_match, NV_File **out_file)
 {
   if(cache == 0) { return 0; }
   
   NV_TypeDef *best = 0;
   NV_TypeMatch best_match = {0};
   NV_Priority best_priority = NV_Priority_Low;
+  NV_File *best_file = 0;
   
   for(NV_CacheEntry *e = cache->first; e != 0; e = e->next)
   {
@@ -134,6 +135,7 @@ nv_cache_find_type(NV_Cache *cache, String8 type_name, NV_TypeMatch *out_match)
         best = td;
         best_match = m;
         best_priority = td->priority;
+        best_file = f;
         continue;
       }
       
@@ -145,16 +147,21 @@ nv_cache_find_type(NV_Cache *cache, String8 type_name, NV_TypeMatch *out_match)
           best = td;
           best_match = am;
           best_priority = td->priority;
+          best_file = f;
         }
       }
     }
   }
   
-  if(out_match != 0 && best != 0)
-  {
-    *out_match = best_match;
-  }
+  if(out_match != 0 && best != 0) { *out_match = best_match; }
+  if(out_file != 0) { *out_file = best_file; }
   return best;
+}
+
+internal NV_TypeDef *
+nv_cache_find_type(NV_Cache *cache, String8 type_name, NV_TypeMatch *out_match)
+{
+  return nv_cache_find_type_ex(cache, type_name, out_match, 0);
 }
 
 internal U64

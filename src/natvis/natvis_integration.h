@@ -61,5 +61,6 @@ internal U64 nv_check_reload(NV_State *state);
 
 // type lookup (debug/inspection)
 internal NV_TypeDef *nv_find_type(NV_State *state, String8 type_name, NV_TypeMatch *out_match);
+internal NV_TypeDef *nv_find_type_ex(NV_State *state, String8 type_name, NV_TypeMatch *out_match, NV_File **out_file);
 
 #endif // NATVIS_INTEGRATION_H

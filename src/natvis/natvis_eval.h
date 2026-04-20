@@ -5,6 +5,20 @@
 #define NATVIS_EVAL_H
 
 ////////////////////////////////
+//~ NatVis Intrinsic Call Inlining
+
+#define NV_INTRINSIC_MAX_RECURSION 16
+
+// Inline all intrinsic function calls in an expression by textual substitution.
+// Type-scoped intrinsics take priority over global ones.
+internal String8 nv_inline_intrinsic_calls(
+  Arena *arena,
+  String8 expr,
+  NV_Intrinsic *type_intrinsics,
+  NV_Intrinsic *global_intrinsics
+);
+
+////////////////////////////////
 //~ NatVis Expression Translation
 
 // Translates a NatVis expression string into a RAD eval-compatible expression.

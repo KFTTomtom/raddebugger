@@ -33,6 +33,15 @@ internal NV_OutputItemList nv_expand_items_from_expand(
   U64 template_arg_count
 );
 
+internal NV_OutputItemList nv_expand_items_from_expand_ex(
+  Arena *arena,
+  NV_Expand *expand,
+  String8 *template_args,
+  U64 template_arg_count,
+  NV_Intrinsic *type_intrinsics,
+  NV_Intrinsic *global_intrinsics
+);
+
 ////////////////////////////////
 //~ NatVis CustomListItems Interpreter
 

@@ -328,6 +328,58 @@ nv_expand_from_xml(Arena *arena, NV_XMLNode *expand_node)
 }
 
 ////////////////////////////////
+//~ NatVis Intrinsic Parsing
+
+internal NV_Intrinsic *
+nv_intrinsic_from_xml(Arena *arena, NV_XMLNode *node)
+{
+  NV_Intrinsic *intr = push_array(arena, NV_Intrinsic, 1);
+  intr->name = nv_xml_attr_from_key(node, str8_lit("Name"));
+  intr->expression = nv_xml_attr_from_key(node, str8_lit("Expression"));
+  intr->category = nv_xml_attr_from_key(node, str8_lit("Category"));
+  intr->return_type = nv_xml_attr_from_key(node, str8_lit("ReturnType"));
+  
+  String8 se = nv_xml_attr_from_key(node, str8_lit("SideEffect"));
+  intr->side_effect = (se.size > 0 && (se.str[0] == 't' || se.str[0] == 'T' || se.str[0] == '1'));
+  
+  // if Expression is not in attribute, check text content
+  if(intr->expression.size == 0 && node->text.size > 0)
+  {
+    intr->expression = node->text;
+  }
+  
+  for(NV_XMLNode *child = node->first; child != 0; child = child->next)
+  {
+    if(str8_match(child->tag, str8_lit("Parameter"), 0))
+    {
+      NV_IntrinsicParam *param = push_array(arena, NV_IntrinsicParam, 1);
+      param->name = nv_xml_attr_from_key(child, str8_lit("Name"));
+      param->type = nv_xml_attr_from_key(child, str8_lit("Type"));
+      SLLQueuePush(intr->first_param, intr->last_param, param);
+      intr->param_count += 1;
+    }
+  }
+  
+  return intr;
+}
+
+////////////////////////////////
+//~ NatVis Intrinsic Lookup by Name
+
+internal NV_Intrinsic *
+nv_intrinsic_from_name(NV_Intrinsic *list, String8 name)
+{
+  for(NV_Intrinsic *intr = list; intr != 0; intr = intr->next)
+  {
+    if(str8_match(intr->name, name, 0))
+    {
+      return intr;
+    }
+  }
+  return 0;
+}
+
+////////////////////////////////
 //~ NatVis Priority Parsing
 
 internal NV_Priority
@@ -355,6 +407,17 @@ nv_file_from_xml(Arena *arena, NV_XMLNode *xml_root, String8 file_path)
   NV_XMLNode *av = nv_xml_child_from_tag(xml_root, str8_lit("AutoVisualizer"));
   if(av == 0) { av = xml_root; }
   
+  // parse global <Intrinsic> elements (direct children of AutoVisualizer)
+  for(NV_XMLNode *gn = av->first; gn != 0; gn = gn->next)
+  {
+    if(str8_match(gn->tag, str8_lit("Intrinsic"), 0))
+    {
+      NV_Intrinsic *intr = nv_intrinsic_from_xml(arena, gn);
+      SLLQueuePush(file->first_intrinsic, file->last_intrinsic, intr);
+      file->intrinsic_count += 1;
+    }
+  }
+  
   for(NV_XMLNode *type_node = av->first; type_node != 0; type_node = type_node->next)
   {
     if(!str8_match(type_node->tag, str8_lit("Type"), 0)) { continue; }
@@ -366,7 +429,7 @@ nv_file_from_xml(Arena *arena, NV_XMLNode *xml_root, String8 file_path)
     String8 inh = nv_xml_attr_from_key(type_node, str8_lit("Inheritable"));
     td->inheritable = (inh.size == 0 || inh.str[0] == 't' || inh.str[0] == 'T' || inh.str[0] == '1');
     
-    // AlternativeType + Intrinsic detection
+    // AlternativeType + Intrinsic parsing
     for(NV_XMLNode *ac = type_node->first; ac != 0; ac = ac->next)
     {
       if(str8_match(ac->tag, str8_lit("AlternativeType"), 0))
@@ -379,7 +442,9 @@ nv_file_from_xml(Arena *arena, NV_XMLNode *xml_root, String8 file_path)
       }
       else if(str8_match(ac->tag, str8_lit("Intrinsic"), 0))
       {
-        td->has_intrinsic = 1;
+        NV_Intrinsic *intr = nv_intrinsic_from_xml(arena, ac);
+        SLLQueuePush(td->first_intrinsic, td->last_intrinsic, intr);
+        td->intrinsic_count += 1;
       }
     }
     

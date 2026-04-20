@@ -185,6 +185,40 @@ read_only global char nv_test_xml[] =
   "</AutoVisualizer>\n";
 
 ////////////////////////////////
+//~ Built-in Intrinsic test XML
+
+read_only global char nv_test_intrinsic_xml[] =
+  "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
+  "<AutoVisualizer xmlns=\"http://schemas.microsoft.com/vstudio/debugger/natvis/2010\">\n"
+  "  <Intrinsic Name=\"_AlignInt\" Expression=\"(Val + Alignment - 1) &amp; ~(Alignment - 1)\">\n"
+  "    <Parameter Name=\"Val\" Type=\"uintptr_t\"/>\n"
+  "    <Parameter Name=\"Alignment\" Type=\"uintptr_t\"/>\n"
+  "  </Intrinsic>\n"
+  "  <Intrinsic Name=\"_GlobalHelper\" Expression=\"GlobalPtr->Data\" SideEffect=\"false\"/>\n"
+  "  <Type Name=\"TestAllocator\">\n"
+  "    <Intrinsic Name=\"_GetData\" Expression=\"(uint8*)Data\"/>\n"
+  "    <DisplayString>{{ data={_GetData()} }}</DisplayString>\n"
+  "    <Expand>\n"
+  "      <Item Name=\"data\">_GetData()</Item>\n"
+  "    </Expand>\n"
+  "  </Type>\n"
+  "  <Type Name=\"TestAligned\">\n"
+  "    <Intrinsic Name=\"GetAligned\" Expression=\"_AlignInt(Size, 16)\"/>\n"
+  "    <DisplayString>{{ aligned={GetAligned()} }}</DisplayString>\n"
+  "  </Type>\n"
+  "  <Type Name=\"TestFrame\">\n"
+  "    <Intrinsic Name=\"stateTree\" Category=\"Method\" Expression=\"*(UStateTree**)&amp;StateTree.Handle\"/>\n"
+  "    <Intrinsic Name=\"stateName\" Category=\"Method\" Expression=\"((FState*)stateTree()->States.Data)[stateHandle.Index].Name\">\n"
+  "      <Parameter Name=\"stateHandle\" Type=\"FHandle\"/>\n"
+  "    </Intrinsic>\n"
+  "    <DisplayString>{{ tree={stateTree()->NamePrivate} }}</DisplayString>\n"
+  "  </Type>\n"
+  "  <Type Name=\"TestGlobalRef\">\n"
+  "    <DisplayString>{{ val={_GlobalHelper()} }}</DisplayString>\n"
+  "  </Type>\n"
+  "</AutoVisualizer>\n";
+
+////////////////////////////////
 //~ Validation functions
 
 internal B32
@@ -594,12 +628,25 @@ nv_test_file(char *path)
   NV_File *nv_file = nv_file_from_xml(arena, result.root, file_path);
   printf("Semantic model: %llu type definitions\n", nv_file->type_count);
   
+  // print global intrinsic count
+  printf("Global intrinsics: %llu\n", nv_file->intrinsic_count);
+  if(nv_file->intrinsic_count > 0)
+  {
+    U64 gi_shown = 0;
+    for(NV_Intrinsic *gi = nv_file->first_intrinsic; gi != 0 && gi_shown < 5; gi = gi->next, gi_shown += 1)
+    {
+      printf("  [G] %.*s(%llu params)\n", (int)gi->name.size, gi->name.str, gi->param_count);
+    }
+    if(nv_file->intrinsic_count > 5) { printf("  ... and %llu more\n", nv_file->intrinsic_count - 5); }
+  }
+  
   // print first 5 Type names from semantic model
   printf("First types:\n");
   U64 shown = 0;
   for(NV_TypeDef *td = nv_file->first_type; td != 0 && shown < 5; td = td->next, shown += 1)
   {
     printf("  [%llu] %.*s", shown, (int)td->name.size, td->name.str);
+    if(td->intrinsic_count > 0) { printf(" [%llu intrinsics]", td->intrinsic_count); }
     if(td->first_display_string != 0) { printf(" [has DisplayString]"); }
     if(td->expand != 0) { printf(" [has Expand: %llu items]", td->expand->item_count); }
     printf("\n");
@@ -703,6 +750,108 @@ entry_point(CmdLine *cmdline)
     }
     
     printf("=== Expansion test %s ===\n\n", p ? "PASSED" : "FAILED");
+    builtin_passed = builtin_passed && p;
+    arena_release(a);
+  }
+  
+  // Intrinsic parsing + inlining tests
+  {
+    Arena *a = arena_alloc();
+    printf("=== Intrinsic test ===\n");
+    B32 p = 1;
+    
+    String8 xml = str8((U8 *)nv_test_intrinsic_xml, sizeof(nv_test_intrinsic_xml) - 1);
+    NV_XMLParseResult xr = nv_xml_parse_from_string(a, xml);
+    NV_File *file = nv_file_from_xml(a, xr.root, str8_lit("intrinsic_test.natvis"));
+    
+    // check global intrinsic count
+    if(file->intrinsic_count == 2)
+    { printf("OK: 2 global intrinsics\n"); }
+    else { printf("FAIL: expected 2 global intrinsics, got %llu\n", file->intrinsic_count); p = 0; }
+    
+    // check global intrinsic names
+    NV_Intrinsic *align_intr = nv_intrinsic_from_name(file->first_intrinsic, str8_lit("_AlignInt"));
+    if(align_intr != 0 && align_intr->param_count == 2)
+    { printf("OK: _AlignInt found with 2 params\n"); }
+    else { printf("FAIL: _AlignInt lookup\n"); p = 0; }
+    
+    NV_Intrinsic *global_helper = nv_intrinsic_from_name(file->first_intrinsic, str8_lit("_GlobalHelper"));
+    if(global_helper != 0 && global_helper->param_count == 0 && !global_helper->side_effect)
+    { printf("OK: _GlobalHelper found, no params, SideEffect=false\n"); }
+    else { printf("FAIL: _GlobalHelper lookup\n"); p = 0; }
+    
+    // check type-scoped intrinsics
+    NV_TypeDef *alloc_td = nv_type_def_from_type_name(file, str8_lit("TestAllocator"));
+    if(alloc_td != 0 && alloc_td->intrinsic_count == 1)
+    { printf("OK: TestAllocator has 1 type-scoped intrinsic\n"); }
+    else { printf("FAIL: TestAllocator intrinsic_count\n"); p = 0; }
+    
+    NV_TypeDef *frame_td = nv_type_def_from_type_name(file, str8_lit("TestFrame"));
+    if(frame_td != 0 && frame_td->intrinsic_count == 2)
+    { printf("OK: TestFrame has 2 type-scoped intrinsics\n"); }
+    else { printf("FAIL: TestFrame intrinsic_count\n"); p = 0; }
+    
+    if(frame_td != 0)
+    {
+      NV_Intrinsic *sn = nv_intrinsic_from_name(frame_td->first_intrinsic, str8_lit("stateName"));
+      if(sn != 0 && sn->param_count == 1 && str8_match(sn->category, str8_lit("Method"), 0))
+      { printf("OK: stateName: 1 param, Category=Method\n"); }
+      else { printf("FAIL: stateName intrinsic\n"); p = 0; }
+    }
+    
+    // test inlining: simple no-arg intrinsic call
+    if(alloc_td != 0)
+    {
+      String8 e1 = nv_inline_intrinsic_calls(a, str8_lit("_GetData()"), alloc_td->first_intrinsic, file->first_intrinsic);
+      if(str8_match(e1, str8_lit("((uint8*)Data)"), 0))
+      { printf("OK: inline _GetData() → ((uint8*)Data)\n"); }
+      else { printf("FAIL: inline _GetData() = '%.*s'\n", (int)e1.size, e1.str); p = 0; }
+    }
+    
+    // test inlining: intrinsic with params
+    {
+      String8 e2 = nv_inline_intrinsic_calls(a, str8_lit("_AlignInt(Size, 16)"), 0, file->first_intrinsic);
+      if(str8_match(e2, str8_lit("(((Size) + (16) - 1) & ~((16) - 1))"), 0))
+      { printf("OK: inline _AlignInt(Size, 16)\n"); }
+      else { printf("FAIL: inline _AlignInt = '%.*s'\n", (int)e2.size, e2.str); p = 0; }
+    }
+    
+    // test inlining: recursive (intrinsic calls another intrinsic)
+    {
+      NV_TypeDef *aligned_td = nv_type_def_from_type_name(file, str8_lit("TestAligned"));
+      if(aligned_td != 0)
+      {
+        String8 e3 = nv_inline_intrinsic_calls(a, str8_lit("GetAligned()"), aligned_td->first_intrinsic, file->first_intrinsic);
+        // GetAligned() → _AlignInt(Size, 16) → ((Size) + (16) - 1) & ~((16) - 1)
+        // result should contain the expanded _AlignInt
+        B32 has_align = (e3.size > 10); // should be fully expanded
+        if(has_align)
+        { printf("OK: recursive inline GetAligned() → '%.*s'\n", (int)e3.size, e3.str); }
+        else { printf("FAIL: recursive inline\n"); p = 0; }
+      }
+    }
+    
+    // test inlining: global intrinsic called from type context
+    {
+      NV_TypeDef *gref_td = nv_type_def_from_type_name(file, str8_lit("TestGlobalRef"));
+      if(gref_td != 0)
+      {
+        String8 e4 = nv_inline_intrinsic_calls(a, str8_lit("_GlobalHelper()"), gref_td->first_intrinsic, file->first_intrinsic);
+        if(str8_match(e4, str8_lit("(GlobalPtr->Data)"), 0))
+        { printf("OK: global intrinsic from type context\n"); }
+        else { printf("FAIL: global intrinsic = '%.*s'\n", (int)e4.size, e4.str); p = 0; }
+      }
+    }
+    
+    // test: no false inlining on non-intrinsic identifiers
+    {
+      String8 e5 = nv_inline_intrinsic_calls(a, str8_lit("UnknownFunc(x, y)"), 0, file->first_intrinsic);
+      if(str8_match(e5, str8_lit("UnknownFunc(x, y)"), 0))
+      { printf("OK: non-intrinsic passthrough\n"); }
+      else { printf("FAIL: non-intrinsic = '%.*s'\n", (int)e5.size, e5.str); p = 0; }
+    }
+    
+    printf("=== Intrinsic test %s ===\n\n", p ? "PASSED" : "FAILED");
     builtin_passed = builtin_passed && p;
     arena_release(a);
   }

@@ -149,10 +149,6 @@ nv_register_auto_hooks(NV_State *state, Arena *arena, E_AutoHookMap *auto_hook_m
     
     for(NV_TypeDef *td = nv_file->first_type; td != 0; td = td->next)
     {
-      // skip types that use <Intrinsic> (requires debugger-side function calls
-      // that can't be translated to RAD eval expressions)
-      if(td->has_intrinsic) { continue; }
-      
       // skip types without any displayable content
       if(td->first_display_string == 0 && td->expand == 0) { continue; }
       
@@ -196,11 +192,13 @@ nv_register_auto_hooks(NV_State *state, Arena *arena, E_AutoHookMap *auto_hook_m
         }
       }
       
-      // generate the tag expression
+      // generate the tag expression and inline intrinsic calls
       String8 tag_expr = nv_type_view_expr_from_typedef(scratch.arena, td, dummy_template_args, template_count);
+      tag_expr = nv_inline_intrinsic_calls(scratch.arena, tag_expr, td->first_intrinsic, nv_file->first_intrinsic);
       
       // generate the summary expression from DisplayString
       String8 summary_expr = nv_summary_expr_from_typedef(scratch.arena, td, dummy_template_args, template_count);
+      summary_expr = nv_inline_intrinsic_calls(scratch.arena, summary_expr, td->first_intrinsic, nv_file->first_intrinsic);
       
       if(tag_expr.size > 0)
       {
@@ -271,4 +269,11 @@ nv_find_type(NV_State *state, String8 type_name, NV_TypeMatch *out_match)
 {
   if(state == 0 || state->cache == 0) { return 0; }
   return nv_cache_find_type(state->cache, type_name, out_match);
+}
+
+internal NV_TypeDef *
+nv_find_type_ex(NV_State *state, String8 type_name, NV_TypeMatch *out_match, NV_File **out_file)
+{
+  if(state == 0 || state->cache == 0) { return 0; }
+  return nv_cache_find_type_ex(state->cache, type_name, out_match, out_file);
 }
