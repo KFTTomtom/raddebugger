@@ -133,14 +133,66 @@ nv_intrinsic_lookup(String8 type_name, String8 intrinsic_name)
 }
 
 ////////////////////////////////
+//~ Expression Safety Filter
+//
+// RAD's eval parser does not support C library function calls (strstr, etc.),
+// certain casts (uintptr_t), or deeply nested inlined intrinsics.
+// Expressions containing these constructs can crash the parser.
+
+internal B32
+nv_expr_is_safe_for_rad(String8 expr, String8 pattern, B32 log_rejection)
+{
+  if(expr.size == 0 || expr.str == 0) { return 0; }
+  
+  String8 unsafe_needles[] = {
+    str8_lit_comp("strstr("),
+    str8_lit_comp("strlen("),
+    str8_lit_comp("strcmp("),
+    str8_lit_comp("memcmp("),
+    str8_lit_comp("sizeof("),
+    str8_lit_comp("offsetof("),
+    str8_lit_comp("uintptr_t"),
+    str8_lit_comp("intptr_t"),
+    str8_lit_comp("nullptr"),
+  };
+  for(U64 i = 0; i < ArrayCount(unsafe_needles); i += 1)
+  {
+    if(str8_find_needle(expr, 0, unsafe_needles[i], 0) < expr.size)
+    {
+      if(log_rejection)
+      {
+        log_infof("natvis: SKIP \"%.*s\" — expr contains unsupported \"%.*s\"",
+          str8_varg(pattern), str8_varg(unsafe_needles[i]));
+      }
+      return 0;
+    }
+  }
+  
+  if(expr.size > 512)
+  {
+    if(log_rejection)
+    {
+      log_infof("natvis: SKIP \"%.*s\" — expr too long (%llu chars)",
+        str8_varg(pattern), expr.size);
+    }
+    return 0;
+  }
+  
+  return 1;
+}
+
+////////////////////////////////
 //~ Registration into RAD Eval System
 
 internal void
-nv_register_auto_hooks(NV_State *state, Arena *arena, E_AutoHookMap *auto_hook_map)
+nv_rebuild_cached_hooks(NV_State *state)
 {
-  if(state == 0 || state->cache == 0 || auto_hook_map == 0) { return; }
+  state->first_cached_hook = 0;
+  state->last_cached_hook = 0;
+  state->cached_hook_count = 0;
+  state->hooks_logged = 0;
   
-  Temp scratch = temp_begin(arena);
+  Arena *work = arena_alloc();
   
   for(NV_CacheEntry *entry = state->cache->first; entry != 0; entry = entry->next)
   {
@@ -149,98 +201,151 @@ nv_register_auto_hooks(NV_State *state, Arena *arena, E_AutoHookMap *auto_hook_m
     
     for(NV_TypeDef *td = nv_file->first_type; td != 0; td = td->next)
     {
-      // skip types without any displayable content
       if(td->first_display_string == 0 && td->expand == 0) { continue; }
       
-      // convert the NatVis type pattern to RAD eval pattern syntax:
-      // NatVis uses * for wildcards, RAD eval uses ?
       String8 pattern = td->name;
       
-      // translate * → ? for RAD eval pattern matching
+      String8 template_args[16] = {0};
+      U64 template_count = 0;
+      for(U64 i = 0; i < td->name.size; i += 1)
+      {
+        if(td->name.str[i] == '*' && template_count < ArrayCount(template_args))
+        {
+          template_args[template_count] = push_str8f(work, "T%llu", template_count + 1);
+          template_count += 1;
+        }
+      }
+      
+      // translate * → ?{T1}, ?{T2}, etc. for RAD eval pattern matching
       {
         String8List parts = {0};
+        U64 wildcard_idx = 0;
         U64 i = 0;
         while(i < pattern.size)
         {
           if(pattern.str[i] == '*')
           {
-            str8_list_push(scratch.arena, &parts, str8_lit("?"));
+            if(wildcard_idx < template_count)
+            {
+              str8_list_push(work, &parts,
+                push_str8f(work, "?{%S}", template_args[wildcard_idx]));
+              wildcard_idx += 1;
+            }
+            else
+            {
+              str8_list_push(work, &parts, str8_lit("?"));
+            }
             i += 1;
           }
           else
           {
             U64 start = i;
             while(i < pattern.size && pattern.str[i] != '*') { i += 1; }
-            str8_list_push(scratch.arena, &parts, str8(pattern.str + start, i - start));
+            str8_list_push(work, &parts, str8(pattern.str + start, i - start));
           }
         }
-        pattern = str8_list_join(scratch.arena, &parts, 0);
+        pattern = str8_list_join(work, &parts, 0);
       }
       
-      // try to match template args for the expression generation
-      // (use empty args for non-template types)
-      String8 dummy_template_args[16] = {0};
-      U64 template_count = 0;
+      String8 tag_expr = nv_type_view_expr_from_typedef(work, td, template_args, template_count);
+      tag_expr = nv_inline_intrinsic_calls(work, tag_expr, td->first_intrinsic, nv_file->first_intrinsic);
       
-      // count wildcards in the pattern to set up placeholder $T references
-      for(U64 i = 0; i < td->name.size; i += 1)
+      String8 summary_expr = nv_summary_expr_from_typedef(work, td, template_args, template_count);
+      summary_expr = nv_inline_intrinsic_calls(work, summary_expr, td->first_intrinsic, nv_file->first_intrinsic);
+      
+      if(tag_expr.size > 0 && nv_expr_is_safe_for_rad(tag_expr, pattern, 1))
       {
-        if(td->name.str[i] == '*' && template_count < ArrayCount(dummy_template_args))
+        if(!nv_expr_is_safe_for_rad(summary_expr, pattern, 0))
         {
-          dummy_template_args[template_count] = push_str8f(scratch.arena, "$T%llu", template_count + 1);
-          template_count += 1;
+          summary_expr = str8_zero();
         }
+        NV_CachedHook *hook = push_array(state->arena, NV_CachedHook, 1);
+        hook->pattern = str8_copy(state->arena, pattern);
+        hook->tag_expr = str8_copy(state->arena, tag_expr);
+        hook->summary_expr = summary_expr.size > 0 ? str8_copy(state->arena, summary_expr) : str8_zero();
+        SLLQueuePush(state->first_cached_hook, state->last_cached_hook, hook);
+        state->cached_hook_count += 1;
       }
       
-      // generate the tag expression and inline intrinsic calls
-      String8 tag_expr = nv_type_view_expr_from_typedef(scratch.arena, td, dummy_template_args, template_count);
-      tag_expr = nv_inline_intrinsic_calls(scratch.arena, tag_expr, td->first_intrinsic, nv_file->first_intrinsic);
-      
-      // generate the summary expression from DisplayString
-      String8 summary_expr = nv_summary_expr_from_typedef(scratch.arena, td, dummy_template_args, template_count);
-      summary_expr = nv_inline_intrinsic_calls(scratch.arena, summary_expr, td->first_intrinsic, nv_file->first_intrinsic);
-      
-      if(tag_expr.size > 0)
-      {
-        e_auto_hook_map_insert_new(arena, auto_hook_map,
-          .type_pattern = str8_copy(arena, pattern),
-          .tag_expr_string = str8_copy(arena, tag_expr),
-          .summary_expr_string = summary_expr.size > 0 ? str8_copy(arena, summary_expr) : str8_zero());
-      }
-      
-      // also register AlternativeType names
       for(String8Node *alt = td->alternative_names.first; alt != 0; alt = alt->next)
       {
         String8 alt_pattern = alt->string;
         {
           String8List parts = {0};
+          U64 alt_wildcard_idx = 0;
           U64 i = 0;
           while(i < alt_pattern.size)
           {
             if(alt_pattern.str[i] == '*')
             {
-              str8_list_push(scratch.arena, &parts, str8_lit("?"));
+              if(alt_wildcard_idx < template_count)
+              {
+                str8_list_push(work, &parts,
+                  push_str8f(work, "?{%S}", template_args[alt_wildcard_idx]));
+                alt_wildcard_idx += 1;
+              }
+              else
+              {
+                str8_list_push(work, &parts, str8_lit("?"));
+              }
               i += 1;
             }
             else
             {
               U64 start = i;
               while(i < alt_pattern.size && alt_pattern.str[i] != '*') { i += 1; }
-              str8_list_push(scratch.arena, &parts, str8(alt_pattern.str + start, i - start));
+              str8_list_push(work, &parts, str8(alt_pattern.str + start, i - start));
             }
           }
-          alt_pattern = str8_list_join(scratch.arena, &parts, 0);
+          alt_pattern = str8_list_join(work, &parts, 0);
         }
         
-        e_auto_hook_map_insert_new(arena, auto_hook_map,
-          .type_pattern = str8_copy(arena, alt_pattern),
-          .tag_expr_string = str8_copy(arena, tag_expr),
-          .summary_expr_string = summary_expr.size > 0 ? str8_copy(arena, summary_expr) : str8_zero());
+        NV_CachedHook *hook = push_array(state->arena, NV_CachedHook, 1);
+        hook->pattern = str8_copy(state->arena, alt_pattern);
+        hook->tag_expr = str8_copy(state->arena, tag_expr);
+        hook->summary_expr = summary_expr.size > 0 ? str8_copy(state->arena, summary_expr) : str8_zero();
+        SLLQueuePush(state->first_cached_hook, state->last_cached_hook, hook);
+        state->cached_hook_count += 1;
       }
     }
   }
   
-  temp_end(scratch);
+  state->cache_generation_at_build = state->cache->generation;
+  arena_release(work);
+}
+
+internal void
+nv_register_auto_hooks(NV_State *state, Arena *arena, E_AutoHookMap *auto_hook_map)
+{
+  if(state == 0 || state->cache == 0 || auto_hook_map == 0) { return; }
+  
+  // rebuild cached hooks if the cache has changed (new files loaded or hot-reloaded)
+  if(state->cache_generation_at_build != state->cache->generation)
+  {
+    nv_rebuild_cached_hooks(state);
+  }
+  
+  // fast replay: insert pre-computed hooks into the per-frame auto_hook_map
+  if(!state->hooks_logged)
+  {
+    log_infof("natvis: replaying %llu cached hooks", state->cached_hook_count);
+  }
+  for(NV_CachedHook *h = state->first_cached_hook; h != 0; h = h->next)
+  {
+    if(h->pattern.size == 0 || h->pattern.str == 0) { continue; }
+    if(h->tag_expr.size == 0 || h->tag_expr.str == 0) { continue; }
+    if(!state->hooks_logged)
+    {
+      log_infof("  hook: pattern=\"%.*s\" tag=\"%.*s\"",
+        (int)(h->pattern.size > 120 ? 120 : h->pattern.size), h->pattern.str,
+        (int)(h->tag_expr.size > 120 ? 120 : h->tag_expr.size), h->tag_expr.str);
+    }
+    e_auto_hook_map_insert_new(arena, auto_hook_map,
+      .type_pattern = h->pattern,
+      .tag_expr_string = h->tag_expr,
+      .summary_expr_string = (h->summary_expr.str != 0) ? h->summary_expr : str8_zero());
+  }
+  state->hooks_logged = 1;
 }
 
 ////////////////////////////////

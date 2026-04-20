@@ -11932,6 +11932,10 @@ rd_frame(void)
         { 0, 1, str8_lit_comp("TStringView<?>"),             str8_lit_comp("DataPtr, Size"),                {0} },
         { 0, 1, str8_lit_comp("TArray<?{element_type},?>"),  str8_lit_comp("array(cast(element_type *)AllocatorInstance.Data, ArrayNum)"), str8_lit_comp("ArrayNum") },
         { 0, 1, str8_lit_comp("TArray<?{element_type}>"),    str8_lit_comp("array(cast(element_type *)AllocatorInstance.Data, ArrayNum)"), str8_lit_comp("ArrayNum") },
+        { 0, 1, str8_lit_comp("TArraySafeAdd<?{element_type},?>"), str8_lit_comp("array(cast(element_type *)AllocatorInstance.Data, ArrayNum)"), str8_lit_comp("ArrayNum") },
+        { 0, 1, str8_lit_comp("TArraySafeAdd<?{element_type}>"),   str8_lit_comp("array(cast(element_type *)AllocatorInstance.Data, ArrayNum)"), str8_lit_comp("ArrayNum") },
+        { 0, 1, str8_lit_comp("TArrayView<?,?>"),                   str8_lit_comp("array(DataPtr, (ArrayNum > 0) ? ArrayNum : 0)"), str8_lit_comp("ArrayNum") },
+        { 0, 1, str8_lit_comp("TArrayView<?>"),                    str8_lit_comp("array(DataPtr, (ArrayNum > 0) ? ArrayNum : 0)"), str8_lit_comp("ArrayNum") },
         { 0, 1, str8_lit_comp("TSharedRef<?>"),              str8_lit_comp("Object"),                      {0} },
         { 0, 1, str8_lit_comp("TSharedPtr<?>"),              str8_lit_comp("Object"),                      {0} },
         { 0, 1, str8_lit_comp("TSharedPtr<?,?>"),            str8_lit_comp("Object"),                      {0} },
@@ -11996,7 +12000,9 @@ rd_frame(void)
     //
     if(rd_state->use_natvis && rd_state->natvis_state != 0)
     {
-      // scan for .natvis files alongside loaded modules
+      // scan for .natvis files alongside loaded modules, and detect UE engine
+      // directories to also load Extras/VisualStudioDebugging/
+      B32 ue_natvis_scanned = 0;
       for(U64 module_idx = 0; module_idx < all_modules.count; module_idx += 1)
       {
         CTRL_Entity *m = all_modules.v[module_idx];
@@ -12006,6 +12012,23 @@ rd_frame(void)
           if(dir.size > 0)
           {
             nv_state_load_directory(rd_state->natvis_state, dir);
+          }
+          
+          if(!ue_natvis_scanned)
+          {
+            String8 binaries_needle_fwd = str8_lit("Binaries/Win64");
+            String8 binaries_needle_bck = str8_lit("Binaries\\Win64");
+            U64 pos_fwd = str8_find_needle(m->string, 0, binaries_needle_fwd, StringMatchFlag_CaseInsensitive);
+            U64 pos_bck = str8_find_needle(m->string, 0, binaries_needle_bck, StringMatchFlag_CaseInsensitive);
+            U64 pos = Min(pos_fwd, pos_bck);
+            if(pos < m->string.size)
+            {
+              String8 engine_root = str8_prefix(m->string, pos);
+              String8 extras_path = push_str8f(scratch.arena, "%.*sExtras/VisualStudioDebugging",
+                                               str8_varg(engine_root));
+              nv_state_load_directory(rd_state->natvis_state, extras_path);
+              ue_natvis_scanned = 1;
+            }
           }
         }
       }

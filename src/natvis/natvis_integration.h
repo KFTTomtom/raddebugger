@@ -25,6 +25,15 @@ struct NV_ScannedDir
   String8 path;
 };
 
+typedef struct NV_CachedHook NV_CachedHook;
+struct NV_CachedHook
+{
+  NV_CachedHook *next;
+  String8 pattern;
+  String8 tag_expr;
+  String8 summary_expr;
+};
+
 typedef struct NV_State NV_State;
 struct NV_State
 {
@@ -36,6 +45,13 @@ struct NV_State
   B32 initialized;
   U64 last_reload_check_us;
   U64 reload_interval_us;
+  
+  NV_CachedHook *first_cached_hook;
+  NV_CachedHook *last_cached_hook;
+  U64 cached_hook_count;
+  U64 cached_hook_generation;
+  U64 cache_generation_at_build;
+  B32 hooks_logged;
 };
 
 ////////////////////////////////

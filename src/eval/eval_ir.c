@@ -1721,6 +1721,11 @@ e_push_irtree_and_type_from_expr(Arena *arena, E_IRTreeAndType *root_parent, E_I
                 {
                   generated = 1;
                   result = e_push_irtree_and_type_from_expr(arena, parent, &e_default_identifier_resolution_rule, disallow_autohooks, 1, inst->inst_expr);
+                  if(e_type_key_match(e_type_key_zero(), result.type_key) &&
+                     !e_type_key_match(e_type_key_zero(), inst->type_key))
+                  {
+                    result.type_key = inst->type_key;
+                  }
                   break;
                 }
               }

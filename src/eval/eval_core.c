@@ -1219,6 +1219,25 @@ e_push_auto_hook_matches_from_type_key(Arena *arena, E_TypeKey type_key)
                   SLLQueuePush(first_wildcard_inst, last_wildcard_inst, inst);
                   inst->name = wildcard_inst_name_node ? wildcard_inst_name_node->string : str8_zero();
                   inst->inst_expr = e_parse_from_string(wildcard_inst_string).expr;
+                  inst->type_key = e_type_key_zero();
+                  {
+                    DI_Match type_match = di_match_from_string(wildcard_inst_string, 0, e_base_ctx->primary_dbg_info->dbgi_key, 0);
+                    if(type_match.idx != 0 && type_match.section_kind == RDI_SectionKind_TypeNodes)
+                    {
+                      Access *wc_access = access_open();
+                      RDI_Parsed *wc_rdi = di_rdi_from_key(wc_access, type_match.key, 0, 0);
+                      for EachIndex(wc_idx, e_base_ctx->dbg_infos_count)
+                      {
+                        if(e_base_ctx->dbg_infos[wc_idx].rdi == wc_rdi)
+                        {
+                          RDI_TypeNode *wc_type_node = rdi_element_from_name_idx(wc_rdi, TypeNodes, type_match.idx);
+                          inst->type_key = e_type_key_ext(e_type_kind_from_rdi(wc_type_node->kind), type_match.idx, (U32)wc_idx+1);
+                          break;
+                        }
+                      }
+                      access_close(wc_access);
+                    }
+                  }
                   if(wildcard_inst_name_node)
                   {
                     wildcard_inst_name_node = wildcard_inst_name_node->next;

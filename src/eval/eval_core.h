@@ -700,6 +700,7 @@ struct E_AutoHookWildcardInst
   E_AutoHookWildcardInst *next;
   String8 name;
   E_Expr *inst_expr;
+  E_TypeKey type_key;
 };
 
 typedef struct E_AutoHookMatch E_AutoHookMatch;
