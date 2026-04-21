@@ -1,6 +1,8 @@
 // Copyright (c) Epic Games Tools
 // Licensed under the MIT license (https://opensource.org/license/mit/)
 
+thread_static U32 e_irtree_recursion_depth = 0;
+
 ////////////////////////////////
 //~ rjf: IR-ization Functions
 
@@ -612,6 +614,18 @@ internal E_IRTreeAndType
 e_push_irtree_and_type_from_expr(Arena *arena, E_IRTreeAndType *root_parent, E_IdentifierResolutionRule *identifier_resolution_rule, B32 disallow_autohooks, B32 disallow_chained_fastpaths, E_Expr *root_expr)
 {
   ProfBeginFunction();
+  
+  //- rjf: recursion depth guard
+  e_irtree_recursion_depth += 1;
+  if(e_irtree_recursion_depth > 256)
+  {
+    log_infof("[RECURSION-GUARD] depth %u exceeded limit, aborting expression evaluation", e_irtree_recursion_depth);
+    e_irtree_recursion_depth -= 1;
+    E_IRTreeAndType bail = {&e_irnode_nil};
+    ProfEnd();
+    return bail;
+  }
+  
   Temp scratch = scratch_begin(&arena, 1);
   E_TypeKeyList inherited_lenses = {0};
   E_IRTreeAndType result = {&e_irnode_nil};
@@ -2706,6 +2720,7 @@ e_push_irtree_and_type_from_expr(Arena *arena, E_IRTreeAndType *root_parent, E_I
   }
   
   scratch_end(scratch);
+  e_irtree_recursion_depth -= 1;
   ProfEnd();
   return result;
 }

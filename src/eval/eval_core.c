@@ -1316,7 +1316,42 @@ e_push_auto_hook_matches_from_type_key(Arena *arena, E_TypeKey type_key)
           E_AutoHookMatch *match = push_array(arena, E_AutoHookMatch, 1);
           SLLQueuePush(matches.first, matches.last, match);
           
-          match->expr = e_parse_from_string(auto_hook_node->expr_string).expr;
+          //- rjf: check if this is a TArray with an inline allocator (has SecondaryData
+          //  instead of Data on AllocatorInstance). The PDB type string lies about the
+          //  allocator type, so we must inspect the actual member layout.
+          String8 expr_string = auto_hook_node->expr_string;
+          {
+            E_Type *parent_type = e_type_from_key(e_type_key_unwrap(type_key, E_TypeUnwrapFlag_AllDecorative));
+            if(parent_type != &e_type_nil && parent_type->members != 0)
+            {
+              for(U64 mi = 0; mi < parent_type->count; mi += 1)
+              {
+                if(str8_match(parent_type->members[mi].name, str8_lit("AllocatorInstance"), 0))
+                {
+                  E_TypeKey alloc_type_key = e_type_key_unwrap(parent_type->members[mi].type_key, E_TypeUnwrapFlag_AllDecorative);
+                  E_Type *alloc_type = e_type_from_key(alloc_type_key);
+                  B32 has_data = 0;
+                  B32 has_secondary = 0;
+                  if(alloc_type != &e_type_nil && alloc_type->members != 0)
+                  {
+                    for(U64 ai = 0; ai < alloc_type->count; ai += 1)
+                    {
+                      if(str8_match(alloc_type->members[ai].name, str8_lit("Data"), 0)) { has_data = 1; }
+                      if(str8_match(alloc_type->members[ai].name, str8_lit("SecondaryData"), 0)) { has_secondary = 1; }
+                    }
+                  }
+                  if(!has_data && has_secondary)
+                  {
+                    expr_string = str8_lit("array((AllocatorInstance.SecondaryData.Data != 0) ? cast(element_type *)AllocatorInstance.SecondaryData.Data : cast(element_type *)(&AllocatorInstance + 0), ArrayNum)");
+                    log_infof("[HOOK-INLINE-ALLOC] detected inline allocator for type, using SecondaryData fallback");
+                  }
+                  break;
+                }
+              }
+            }
+          }
+          
+          match->expr = e_parse_from_string(expr_string).expr;
           match->summary_expr_string = auto_hook_node->summary_expr_string;
           match->first_wildcard_inst = first_wildcard_inst;
           match->last_wildcard_inst = last_wildcard_inst;
