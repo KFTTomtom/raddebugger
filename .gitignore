@@ -3,3 +3,8 @@
 *~
 .vs
 tags
+crash/raddbg_crash_dump.dmp
+do_build.bat
+raddbg.sln
+raddbg.vcxproj
+raddbg.vcxproj.user
