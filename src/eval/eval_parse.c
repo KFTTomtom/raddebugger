@@ -594,7 +594,6 @@ internal E_TypeKey
 e_leaf_type_key_from_name(String8 name)
 {
   E_TypeKey key = e_leaf_builtin_type_key_from_name(name);
-  if(!e_type_key_match(e_type_key_zero(), key))
   {
     DI_Match match = di_match_from_string(name, 0, e_base_ctx->primary_dbg_info->dbgi_key, 0);
     if(match.section_kind == RDI_SectionKind_TypeNodes)
@@ -630,6 +629,19 @@ e_type_key_from_expr(E_Expr *expr)
     case E_ExprKind_LeafIdentifier:
     {
       result = e_leaf_type_key_from_name(expr->string);
+      if(e_type_key_match(result, e_type_key_zero()) && e_cache != 0 && e_cache->first_wildcard_inst != 0)
+      {
+        for(E_AutoHookWildcardInst *inst = e_cache->first_wildcard_inst; inst != 0; inst = inst->next)
+        {
+          if(str8_match(inst->name, expr->string, 0) && !e_type_key_match(e_type_key_zero(), inst->type_key))
+          {
+            result = inst->type_key;
+            log_infof("[TYPE-KEY-FROM-EXPR] wildcard fallback: '%S' => type_key kind=%u idx=%u dbgi=%u",
+                      expr->string, result.u32[0], result.u32[1], result.u32[2]);
+            break;
+          }
+        }
+      }
     }break;
     case E_ExprKind_TypeIdent:
     {
@@ -684,8 +696,26 @@ e_push_type_parse_from_text_tokens(Arena *arena, String8 text, E_TokenArray toke
         token_string = str8_substr(token_string, r1u64(1, token_string.size-1));
       }
       E_TypeKey type_key = e_leaf_type_key_from_name(token_string);
+      B32 from_wildcard = 0;
+      if(e_type_key_match(e_type_key_zero(), type_key) && e_cache->first_wildcard_inst != 0)
+      {
+        for(E_AutoHookWildcardInst *inst = e_cache->first_wildcard_inst; inst != 0; inst = inst->next)
+        {
+          if(str8_match(inst->name, token_string, 0) && !e_type_key_match(e_type_key_zero(), inst->type_key))
+          {
+            type_key = inst->type_key;
+            from_wildcard = 1;
+            break;
+          }
+        }
+      }
       if(!e_type_key_match(e_type_key_zero(), type_key))
       {
+        E_Type *resolved = e_type_from_key(type_key);
+        log_infof("[TYPE-PARSE] token='%S' resolved to type='%S' kind=%u (from_wildcard=%d, idx=%u, dbgi=%u)",
+                  token_string,
+                  resolved ? resolved->name : str8_lit("(null)"),
+                  type_key.u32[0], from_wildcard, type_key.u32[1], type_key.u32[2]);
         token_it += 1;
         
         // rjf: apply unsigned marker to base type

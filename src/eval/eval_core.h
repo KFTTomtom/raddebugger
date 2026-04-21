@@ -932,6 +932,7 @@ struct E_UsedExprNode
   E_UsedExprNode *next;
   E_UsedExprNode *prev;
   E_Expr *expr;
+  E_TypeKey type_key;
 };
 
 typedef struct E_UsedExprSlot E_UsedExprSlot;

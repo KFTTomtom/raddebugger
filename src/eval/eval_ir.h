@@ -151,9 +151,9 @@ internal E_IRNode *e_irtree_convert_hi(Arena *arena, E_IRNode *c, E_TypeKey out,
 internal E_IRNode *e_irtree_resolve_to_value(Arena *arena, E_Mode from_mode, E_IRNode *tree, E_TypeKey type_key);
 
 //- rjf: expression poison checking
-internal B32 e_expr_is_poisoned(E_Expr *expr);
-internal void e_expr_poison(E_Expr *expr);
-internal void e_expr_unpoison(E_Expr *expr);
+internal B32 e_expr_is_poisoned(E_Expr *expr, E_TypeKey type_key);
+internal void e_expr_poison(E_Expr *expr, E_TypeKey type_key);
+internal void e_expr_unpoison(E_Expr *expr, E_TypeKey type_key);
 
 //- rjf: top-level irtree/type extraction
 E_TYPE_ACCESS_FUNCTION_DEF(default);

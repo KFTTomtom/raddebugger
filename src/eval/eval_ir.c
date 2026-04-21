@@ -318,14 +318,15 @@ e_irtree_resolve_to_value(Arena *arena, E_Mode from_mode, E_IRNode *tree, E_Type
 //- rjf: rule tag poison checking
 
 internal B32
-e_expr_is_poisoned(E_Expr *expr)
+e_expr_is_poisoned(E_Expr *expr, E_TypeKey type_key)
 {
   B32 tag_is_poisoned = 0;
   U64 hash = e_hash_from_string(5381, str8_struct(&expr));
+  hash = e_hash_from_string(hash, str8_struct(&type_key));
   U64 slot_idx = hash%e_cache->used_expr_map->slots_count;
   for(E_UsedExprNode *n = e_cache->used_expr_map->slots[slot_idx].first; n != 0; n = n->next)
   {
-    if(n->expr == expr)
+    if(n->expr == expr && e_type_key_match(n->type_key, type_key))
     {
       tag_is_poisoned = 1;
       break;
@@ -335,23 +336,26 @@ e_expr_is_poisoned(E_Expr *expr)
 }
 
 internal void
-e_expr_poison(E_Expr *expr)
+e_expr_poison(E_Expr *expr, E_TypeKey type_key)
 {
   U64 hash = e_hash_from_string(5381, str8_struct(&expr));
+  hash = e_hash_from_string(hash, str8_struct(&type_key));
   U64 slot_idx = hash%e_cache->used_expr_map->slots_count;
   E_UsedExprNode *n = push_array(e_cache->arena, E_UsedExprNode, 1);
   n->expr = expr;
+  n->type_key = type_key;
   DLLPushBack(e_cache->used_expr_map->slots[slot_idx].first, e_cache->used_expr_map->slots[slot_idx].last, n);
 }
 
 internal void
-e_expr_unpoison(E_Expr *expr)
+e_expr_unpoison(E_Expr *expr, E_TypeKey type_key)
 {
   U64 hash = e_hash_from_string(5381, str8_struct(&expr));
+  hash = e_hash_from_string(hash, str8_struct(&type_key));
   U64 slot_idx = hash%e_cache->used_expr_map->slots_count;
   for(E_UsedExprNode *n = e_cache->used_expr_map->slots[slot_idx].first; n != 0; n = n->next)
   {
-    if(n->expr == expr)
+    if(n->expr == expr && e_type_key_match(n->type_key, type_key))
     {
       DLLRemove(e_cache->used_expr_map->slots[slot_idx].first, e_cache->used_expr_map->slots[slot_idx].last, n);
       break;
@@ -494,6 +498,18 @@ E_TYPE_ACCESS_FUNCTION_DEF(default)
       E_IRTreeAndType l = *lhs_irtree;
       E_IRTreeAndType r = e_push_irtree_and_type_from_expr(arena, overridden, &e_default_identifier_resolution_rule, 0, 1, exprr);
       e_msg_list_concat_in_place(&result.msgs, &r.msgs);
+      // rjf: unwrap MetaSummary before standard unwrap — MetaSummary is not
+      // handled by e_type_key_unwrap but wraps indexable types produced by hooks
+      {
+        E_TypeKey k = l.type_key;
+        for(U32 depth = 0; depth < 8; depth += 1)
+        {
+          if(e_type_kind_from_key(k) == E_TypeKind_MetaSummary)
+          { k = e_type_key_direct(k); }
+          else { break; }
+        }
+        l.type_key = k;
+      }
       E_TypeKey l_restype = e_type_key_unwrap(l.type_key, E_TypeUnwrapFlag_AllDecorative);
       E_TypeKey r_restype = e_type_key_unwrap(r.type_key, E_TypeUnwrapFlag_AllDecorative);
       E_TypeKind l_restype_kind = e_type_kind_from_key(l_restype);
@@ -508,6 +524,12 @@ E_TYPE_ACCESS_FUNCTION_DEF(default)
       }
       else if(l_restype_kind != E_TypeKind_Ptr && l_restype_kind != E_TypeKind_Array && l_restype_kind != E_TypeKind_LRef && l_restype_kind != E_TypeKind_RRef)
       {
+        Temp idx_scratch = scratch_begin(0, 0);
+        String8 l_type_str = e_type_string_from_key(idx_scratch.arena, l.type_key);
+        String8 l_res_str = e_type_string_from_key(idx_scratch.arena, l_restype);
+        log_infof("[INDEX-FAIL] Cannot index: l_type='%S' l_restype='%S' kind=%u, l.mode=%u, root_op=%u",
+                  l_type_str, l_res_str, l_restype_kind, l.mode, l.root->op);
+        scratch_end(idx_scratch);
         e_msgf(arena, &result.msgs, E_MsgKind_MalformedInput, exprl->range, "Cannot index into this type.");
         break;
       }
@@ -602,12 +624,13 @@ e_push_irtree_and_type_from_expr(Arena *arena, E_IRTreeAndType *root_parent, E_I
   {
     Task *next;
     E_Expr *expr;
+    E_TypeKey poison_type_key;
     E_AutoHookWildcardInst *first_wildcard_inst;
     E_AutoHookWildcardInst *last_wildcard_inst;
     E_IRTreeAndType *overridden;
     String8 summary_expr_string;
   };
-  Task start_task = {0, root_expr, 0};
+  Task start_task = {0, root_expr};
   Task *first_task = &start_task;
   Task *last_task = first_task;
   for(Task *t = first_task; t != 0; t = t->next)
@@ -615,8 +638,9 @@ e_push_irtree_and_type_from_expr(Arena *arena, E_IRTreeAndType *root_parent, E_I
     E_Expr *expr = t->expr;
     E_IRTreeAndType *parent = t->overridden ? t->overridden : root_parent;
     
-    //- rjf: poison the expression we are about to use, so we don't recursively use it
-    e_expr_poison(expr);
+    //- rjf: poison the (expr, type_key) pair to prevent recursion for the same type,
+    //  while allowing the same hook expression to evaluate for different types
+    e_expr_poison(expr, t->poison_type_key);
     
     //- rjf: push stack elements
     E_AutoHookWildcardInst *first_wildcard_inst_restore = e_cache->first_wildcard_inst;
@@ -855,13 +879,28 @@ e_push_irtree_and_type_from_expr(Arena *arena, E_IRTreeAndType *root_parent, E_I
         U8 out_group = e_type_group_from_kind(cast_type_unwrapped_kind);
         RDI_EvalConversionKind conversion_rule = rdi_eval_conversion_kind_from_typegroups(in_group, out_group);
         
+        if(e_cache->first_wildcard_inst != 0)
+        {
+          Temp log_scratch = scratch_begin(0, 0);
+          String8 cast_type_str = e_type_string_from_key(log_scratch.arena, cast_type);
+          String8 casted_type_str = e_type_string_from_key(log_scratch.arena, casted_type);
+          log_infof("[CAST-DIAG] cast_type='%S' kind=%u size=%llu, casted_type='%S' kind=%u size=%llu, in_grp=%u out_grp=%u conv=%u, cast_expr_kind=%u, root_op=%u",
+                    cast_type_str, cast_type_kind, cast_type_byte_size,
+                    casted_type_str, casted_type_kind, casted_type_byte_size,
+                    in_group, out_group, conversion_rule,
+                    cast_type_expr->kind, casted_tree.root->op);
+          scratch_end(log_scratch);
+        }
+        
         // rjf: bad conditions? -> error if applicable, exit
         if(casted_tree.root->op == 0)
         {
+          if(e_cache->first_wildcard_inst != 0) { log_infof("[CAST-DIAG]   => BAIL: casted_tree.root->op == 0"); }
           break;
         }
         else if(cast_type_kind == E_TypeKind_Null)
         {
+          if(e_cache->first_wildcard_inst != 0) { log_infof("[CAST-DIAG]   => BAIL: cast_type_kind == Null"); }
           break;
         }
         else if(conversion_rule != RDI_EvalConversionKind_Noop &&
@@ -2583,6 +2622,16 @@ e_push_irtree_and_type_from_expr(Arena *arena, E_IRTreeAndType *root_parent, E_I
       {
         result.type_key = e_type_key_cons_meta_summary(result.type_key, t->summary_expr_string);
       }
+      {
+        Temp oh_scratch = scratch_begin(0, 0);
+        String8 res_str = e_type_string_from_key(oh_scratch.arena, result.type_key);
+        String8 ovr_str = e_type_string_from_key(oh_scratch.arena, t->overridden->type_key);
+        log_infof("[HOOK-RESULT] overridden type='%S' kind=%u => result type='%S' kind=%u mode=%u root_op=%u auto_hook=%u",
+                  ovr_str, e_type_kind_from_key(t->overridden->type_key),
+                  res_str, e_type_kind_from_key(result.type_key),
+                  result.mode, result.root->op, result.auto_hook);
+        scratch_end(oh_scratch);
+      }
     }
     
     //- rjf: restore stack elements
@@ -2593,14 +2642,27 @@ e_push_irtree_and_type_from_expr(Arena *arena, E_IRTreeAndType *root_parent, E_I
     if(!disallow_autohooks && result.mode != E_Mode_Null)
     {
       E_AutoHookMatchList matches = e_auto_hook_matches_from_type_key(result.type_key);
+      if(matches.count == 0 && e_cache->first_wildcard_inst != 0)
+      {
+        Temp ahlog_scratch = scratch_begin(0, 0);
+        String8 rtype_str = e_type_string_from_key(ahlog_scratch.arena, result.type_key);
+        log_infof("[AUTOHOOK-MISS] no matches for type='%S' kind=%u mode=%u",
+                  rtype_str, e_type_kind_from_key(result.type_key), result.mode);
+        scratch_end(ahlog_scratch);
+      }
       for(E_AutoHookMatch *match = matches.first; match != 0; match = match->next)
       {
-        B32 e_is_poisoned = e_expr_is_poisoned(match->expr);
+        B32 e_is_poisoned = e_expr_is_poisoned(match->expr, result.type_key);
+        if(e_is_poisoned)
+        {
+          log_infof("[AUTOHOOK-POISON] hook expr is poisoned, skipping");
+        }
         if(!e_is_poisoned)
         {
           Task *task = push_array(scratch.arena, Task, 1);
           SLLQueuePush(first_task, last_task, task);
           task->expr = match->expr;
+          task->poison_type_key = result.type_key;
           task->first_wildcard_inst = match->first_wildcard_inst;
           task->last_wildcard_inst  = match->last_wildcard_inst;
           task->overridden = push_array(scratch.arena, E_IRTreeAndType, 1);
@@ -2618,7 +2680,7 @@ e_push_irtree_and_type_from_expr(Arena *arena, E_IRTreeAndType *root_parent, E_I
   //
   for(Task *t = first_task; t != 0; t = t->next)
   {
-    e_expr_unpoison(t->expr);
+    e_expr_unpoison(t->expr, t->poison_type_key);
   }
   
   //////////////////////////////

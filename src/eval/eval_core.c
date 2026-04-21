@@ -1224,52 +1224,51 @@ e_push_auto_hook_matches_from_type_key(Arena *arena, E_TypeKey type_key)
                   log_infof("[WC-CAPTURE] pattern matched type '%S', wildcard name='%S', captured text='%S'",
                             type_string, inst->name, wildcard_inst_string);
                   
-                  //- rjf: try to resolve the wildcard's type_key by scanning
-                  // the parent type's member types. This handles function-scoped
-                  // types (e.g. FSquadRef inside TArray<FSquadRef>) that
-                  // string-based lookup cannot resolve — we find a member whose
-                  // pointee type name matches the captured wildcard text.
-                  if(wildcard_inst_string.size > 0)
+                  //- rjf: try to resolve the wildcard's type_key by finding a
+                  // member named 'ElementType' whose base type corresponds to
+                  // the captured wildcard. This handles function-scoped types
+                  // where the PDB uses different name mangling in the type
+                  // string vs the member type name (e.g. backtick-quoted
+                  // ``2' vs __l2 for anonymous scopes).
+                  if(wildcard_inst_string.size > 0 && wildcard_inst_name_node != 0)
                   {
                     E_Type *parent_type = e_type_from_key(type_key);
                     if(parent_type != 0 && parent_type->count > 0 && parent_type->members != 0)
                     {
-                      log_infof("[WC-MEMBER-SCAN] parent type '%S' has %llu members, scanning for '%S'...",
-                                parent_type->name, parent_type->count, wildcard_inst_string);
+                      log_infof("[WC-MEMBER-SCAN] parent type '%S' has %llu members, looking for 'ElementType' member...",
+                                parent_type->name, parent_type->count);
                       for(U64 mi = 0; mi < parent_type->count && e_type_key_match(inst->type_key, e_type_key_zero()); mi += 1)
                       {
-                        E_TypeKey member_type_key = parent_type->members[mi].type_key;
-                        E_TypeKey unwrapped = member_type_key;
-                        for(U32 depth = 0; depth < 4; depth += 1)
+                        if(str8_match(parent_type->members[mi].name, str8_lit("ElementType"), 0))
                         {
-                          E_TypeKind k = e_type_kind_from_key(unwrapped);
-                          if(k == E_TypeKind_Ptr || k == E_TypeKind_LRef || k == E_TypeKind_RRef ||
-                             k == E_TypeKind_Array || k == E_TypeKind_Modifier || k == E_TypeKind_Alias)
+                          E_TypeKey member_type_key = parent_type->members[mi].type_key;
+                          E_TypeKey unwrapped = member_type_key;
+                          for(U32 depth = 0; depth < 4; depth += 1)
                           {
-                            unwrapped = e_type_key_direct(unwrapped);
+                            E_TypeKind k = e_type_kind_from_key(unwrapped);
+                            if(k == E_TypeKind_Ptr || k == E_TypeKind_LRef || k == E_TypeKind_RRef ||
+                               k == E_TypeKind_Array || k == E_TypeKind_Modifier || k == E_TypeKind_Alias)
+                            {
+                              unwrapped = e_type_key_direct(unwrapped);
+                            }
+                            else { break; }
                           }
-                          else { break; }
-                        }
-                        E_TypeKind uwk = e_type_kind_from_key(unwrapped);
-                        if(uwk == E_TypeKind_Struct || uwk == E_TypeKind_Class ||
-                           uwk == E_TypeKind_Union  || uwk == E_TypeKind_Enum)
-                        {
-                          String8 member_base_name = e_type_string_from_key(scratch.arena, unwrapped);
-                          member_base_name = str8_skip_chop_whitespace(member_base_name);
-                          log_infof("[WC-MEMBER-SCAN]   member[%llu] '%S' base_type='%S' vs wildcard='%S' => %s",
-                                    mi, parent_type->members[mi].name, member_base_name, wildcard_inst_string,
-                                    str8_match(member_base_name, wildcard_inst_string, 0) ? "MATCH" : "no");
-                          if(str8_match(member_base_name, wildcard_inst_string, 0))
+                          E_TypeKind uwk = e_type_kind_from_key(unwrapped);
+                          if(uwk == E_TypeKind_Struct || uwk == E_TypeKind_Class ||
+                             uwk == E_TypeKind_Union  || uwk == E_TypeKind_Enum)
                           {
                             inst->type_key = unwrapped;
-                            log_infof("[WC-MEMBER-SCAN]   => resolved type_key via member scan (kind=%u, idx=%u, dbgi=%u)",
+                            E_Type *resolved_type = e_type_from_key(unwrapped);
+                            log_infof("[WC-MEMBER-SCAN]   => resolved via 'ElementType' member: name='%S' (kind=%u, idx=%u, dbgi=%u)",
+                                      resolved_type ? resolved_type->name : str8_lit("(null)"),
                                       unwrapped.u32[0], unwrapped.u32[1], unwrapped.u32[2]);
                           }
+                          break;
                         }
                       }
                       if(e_type_key_match(inst->type_key, e_type_key_zero()))
                       {
-                        log_infof("[WC-MEMBER-SCAN]   => NO match found in any member");
+                        log_infof("[WC-MEMBER-SCAN]   => 'ElementType' member not found or not a record type");
                       }
                     }
                     else
@@ -1316,6 +1315,7 @@ e_push_auto_hook_matches_from_type_key(Arena *arena, E_TypeKey type_key)
         {
           E_AutoHookMatch *match = push_array(arena, E_AutoHookMatch, 1);
           SLLQueuePush(matches.first, matches.last, match);
+          
           match->expr = e_parse_from_string(auto_hook_node->expr_string).expr;
           match->summary_expr_string = auto_hook_node->summary_expr_string;
           match->first_wildcard_inst = first_wildcard_inst;
@@ -1352,8 +1352,8 @@ e_auto_hook_matches_from_type_key(E_TypeKey type_key)
     {
       node = push_array(e_cache->arena, E_TypeAutoHookCacheNode, 1);
       SLLQueuePush(e_cache->type_auto_hook_cache_map->slots[slot_idx].first, e_cache->type_auto_hook_cache_map->slots[slot_idx].last, node);
-      node->key = type_key;
       node->matches = e_push_auto_hook_matches_from_type_key(e_cache->arena, type_key);
+      node->key = type_key;
     }
     matches = node->matches;
   }
