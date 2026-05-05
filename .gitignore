@@ -8,3 +8,4 @@ do_build.bat
 raddbg.sln
 raddbg.vcxproj
 raddbg.vcxproj.user
+*.md
