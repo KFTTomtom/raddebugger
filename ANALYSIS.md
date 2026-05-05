@@ -110,6 +110,13 @@ Le code est organisé en **couches à dépendances acycliques**. Chaque couche c
 | `ui` | `UI_` | Framework UI immediate-mode custom |
 | `raddbg` | `RD_` | Application debugger (commandes, vues, panels, config) |
 
+#### NatVis (visualisation de types)
+| Couche | Namespace | Rôle |
+|--------|-----------|------|
+| `natvis` | `NV_` | Parsing XML, modèle typé, traduction d'expressions, expansion, cache hot-reload, intégration auto-hooks |
+
+Fichiers : `natvis_parse`, `natvis_types`, `natvis_eval`, `natvis_expand`, `natvis_cache`, `natvis_integration`, `natvis_inc`, `natvis_test`
+
 #### Services et support
 | Couche | Namespace | Rôle |
 |--------|-----------|------|
@@ -234,11 +241,25 @@ Le layout est un **arbre de splits** (`CFG_PanelNode`) :
 
 ### Visualisation de types
 
-- **Pas de NatVis** côté runtime RAD Debugger
-- Système propre : `type_view` (pattern + expression dans la config)
+- **Support NatVis runtime** : module complet `src/natvis/` (parsing XML, modèle typé, traduction d'expressions, expansion, cache avec hot-reload)
+- Intégration via `E_AutoHookMap` : les NatVis sont enregistrés comme auto-hooks type_view dans la frame loop de `raddbg_core.c`
+- Chargement automatique des `.natvis` depuis les répertoires des modules chargés, détection UE (Extras/VisualStudioDebugging), et chemins configurés (`natvis_path`)
+- Setting `use_natvis` (défaut : activé) dans `raddbg.mdesk`
+- Système propre : `type_view` (pattern + expression dans la config) — prioritaire sur NatVis
 - Visualisateurs intégrés pour STL et UE (activables via settings)
 - Markup embeddable dans les binaires debuggés (`lib_raddbg_markup`)
 - Lenses : text, disasm, memory, bitmap, color, geo3d
+
+#### Limitations NatVis actuelles
+
+| Limitation | Détail |
+|------------|--------|
+| `Intrinsic` | Non supporté (nécessaire pour ~20% des types UE : FName, UObject) |
+| Conditions runtime | Heuristiques statiques, pas d'évaluation réelle |
+| `TreeItems` | Parsé mais traversal non implémenté |
+| `IndexListItems` | Parsé, évaluation index runtime partielle |
+| PDB-embedded NatVis | API prête (`NV_SourceKind_PDB`), extraction PDB non branchée |
+| `EV_ExpandRule` hooks | Non utilisés — l'expansion passe par auto-hooks, pas par la table d'expand rules |
 
 ---
 
@@ -284,6 +305,7 @@ Le layout est un **arbre de splits** (`CFG_PanelNode`) :
 | **IPC partagé** | Shared memory + sémaphores nommés (`--ipc`) pour envoyer des commandes texte à une instance GUI |
 | **Commandes texte** | Toutes les actions UI sont des commandes nommées, invocables via IPC |
 | **NatVis en PDB** | Le linker radlink embarque des `.natvis` dans les PDB pour Visual Studio |
+| **NatVis runtime** | Module `src/natvis/` : parsing, évaluation, expansion, cache hot-reload, intégration auto-hooks dans la frame loop |
 | **`launch.vs.json`** | Config minimale pour debugger raddbg lui-même sous WSL+GDB |
 
 ### Ce qui n'existe PAS
@@ -327,7 +349,8 @@ L'IPC fonctionne par **shared memory nommé** :
 ### Debugger
 - **Performance** : caches asynchrones partout (debug info, fichiers, artéfacts, fonts)
 - **Évaluateur d'expressions** : compilateur complet (lexer→parser→typechecker→IR→eval)
-- **Système de visualisation** : lenses extensibles, type views pour STL/UE
+- **Système de visualisation** : lenses extensibles, type views pour STL/UE, **support NatVis runtime**
+- **NatVis** : parsing XML, modèle typé, traduction d'expressions, expansion (ArrayItems, LinkedListItems, CustomListItems, Synthetic, ExpandedItem), cache hot-reload
 - **Mémoire** : inspecteur mémoire avec peek types, annotations struct, zoom dédié
 - **Linker intégré** : radlink 50% plus rapide sur gros projets, support natif RDI
 
