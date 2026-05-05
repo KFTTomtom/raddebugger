@@ -1356,7 +1356,8 @@ THREAD_POOL_TASK_FUNC(rdib_fill_udt_members_task)
         dst->kind            = RDI_MemberKind_VirtualBase;
         dst->name_string_idx = 0;
         dst->type_idx        = rdib_idx_from_type(src->virtual_base_class.type_ref);
-        dst->off             = 0; // TODO: ???
+        dst->off             = (RDI_U32)src->virtual_base_class.vbptr_off;
+        dst->vbtable_off     = (RDI_U16)src->virtual_base_class.vtable_off;
       } break;
       case RDI_MemberKind_NestedType: {
         dst->kind            = RDI_MemberKind_NestedType;

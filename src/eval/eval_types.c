@@ -810,6 +810,12 @@ e_push_type_from_key(Arena *arena, E_TypeKey key)
                     dst->type_key = e_type_key_ext(member_type_kind, src->type_idx, rdi_num);
                     dst->name.str = rdi_string_from_idx(rdi, src->name_string_idx, &dst->name.size);
                     dst->off      = (U64)src->off;
+                    if(src->kind == RDI_MemberKind_VirtualBase)
+                    {
+                      dst->is_virtual_base = 1;
+                      dst->vbptr_off       = src->off;
+                      dst->vbtable_off     = src->vbtable_off;
+                    }
                   }
                 }
               }
@@ -1317,10 +1323,21 @@ e_type_data_members_from_key(Arena *arena, E_TypeKey key)
       E_TypeKeyList inheritance_chain;
       E_TypeKey type_key;
       E_Type *type;
+      B32 is_virtual_base;
+      U32 vbptr_off;
+      U16 vbtable_off;
     };
-    Task start_task = {0, 0, {0}, key, root_type};
+    Task start_task = {0};
+    start_task.type_key = key;
+    start_task.type = root_type;
     Task *first_task = &start_task;
     Task *last_task = &start_task;
+    
+    // track visited virtual base type keys for diamond deduplication
+    U64 visited_vbase_count = 0;
+    U64 visited_vbase_cap = 16;
+    E_TypeKey *visited_vbases = push_array(scratch.arena, E_TypeKey, visited_vbase_cap);
+    
     for(Task *task = first_task; task != 0; task = task->next)
     {
       E_Type *type = task->type;
@@ -1335,6 +1352,12 @@ e_type_data_members_from_key(Arena *arena, E_TypeKey key)
             MemoryCopyStruct(&n->v, &type->members[member_idx]);
             n->v.off += task->base_off;
             n->v.inheritance_key_chain = task->inheritance_chain;
+            if(task->is_virtual_base)
+            {
+              n->v.is_virtual_base = 1;
+              n->v.vbptr_off       = task->vbptr_off;
+              n->v.vbtable_off     = task->vbtable_off;
+            }
             SLLQueuePush(members_list.first, members_list.last, n);
             members_list.count += 1;
             members_need_offset_sort = members_need_offset_sort || (type->members[member_idx].kind == E_MemberKind_DataField && n->v.off < last_member_off);
@@ -1349,6 +1372,49 @@ e_type_data_members_from_key(Arena *arena, E_TypeKey key)
             e_type_key_list_push(scratch.arena, &t->inheritance_chain, type->members[member_idx].type_key);
             t->type_key = type->members[member_idx].type_key;
             t->type = e_type_from_key(type->members[member_idx].type_key);
+            t->is_virtual_base = task->is_virtual_base;
+            t->vbptr_off       = task->vbptr_off;
+            t->vbtable_off     = task->vbtable_off;
+            SLLQueuePush(first_task, last_task, t);
+            members_need_offset_sort = 1;
+          }
+          else if(type->members[member_idx].kind == E_MemberKind_VirtualBase)
+          {
+            E_TypeKey vbase_key = type->members[member_idx].type_key;
+            
+            // diamond dedup: skip if we already visited this virtual base type
+            B32 already_visited = 0;
+            for(U64 vi = 0; vi < visited_vbase_count; vi += 1)
+            {
+              if(e_type_key_match(visited_vbases[vi], vbase_key))
+              {
+                already_visited = 1;
+                break;
+              }
+            }
+            if(already_visited) { continue; }
+            
+            // record this virtual base as visited
+            if(visited_vbase_count >= visited_vbase_cap)
+            {
+              U64 new_cap = visited_vbase_cap * 2;
+              E_TypeKey *new_arr = push_array(scratch.arena, E_TypeKey, new_cap);
+              MemoryCopy(new_arr, visited_vbases, sizeof(E_TypeKey)*visited_vbase_count);
+              visited_vbases = new_arr;
+              visited_vbase_cap = new_cap;
+            }
+            visited_vbases[visited_vbase_count] = vbase_key;
+            visited_vbase_count += 1;
+            
+            Task *t = push_array(scratch.arena, Task, 1);
+            t->base_off = 0;
+            t->is_virtual_base = 1;
+            t->vbptr_off       = type->members[member_idx].vbptr_off;
+            t->vbtable_off     = type->members[member_idx].vbtable_off;
+            t->inheritance_chain = e_type_key_list_copy(scratch.arena, &task->inheritance_chain);
+            e_type_key_list_push(scratch.arena, &t->inheritance_chain, vbase_key);
+            t->type_key = vbase_key;
+            t->type = e_type_from_key(vbase_key);
             SLLQueuePush(first_task, last_task, t);
             members_need_offset_sort = 1;
           }
@@ -1390,7 +1456,7 @@ e_type_data_members_from_key(Arena *arena, E_TypeKey key)
   PaddingNode *first_padding = 0;
   PaddingNode *last_padding = 0;
   U64 padding_count = 0;
-  if((root_type_kind == E_TypeKind_Struct || root_type_kind == E_TypeKind_Class) && key.kind != E_TypeKeyKind_Cons)
+  if(e_members_sort_by_memory_layout && (root_type_kind == E_TypeKind_Struct || root_type_kind == E_TypeKind_Class) && key.kind != E_TypeKeyKind_Cons)
   {
     for(U64 idx = 0; idx < members.count; idx += 1)
     {

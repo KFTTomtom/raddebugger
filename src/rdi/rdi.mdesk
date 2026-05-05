@@ -812,10 +812,10 @@ RDI_MemberKindTable:
 RDI_MemberMemberTable:
 {
   {kind            RDI_MemberKind                  ""}
-  {pad             RDI_U16                         ""}
+  {vbtable_off     RDI_U16                         "For VirtualBase: offset into vbtable"}
   {name_string_idx RDI_U32                         ""}
   {type_idx        RDI_U32                         ""}
-  {off             RDI_U32                         ""}
+  {off             RDI_U32                         "For VirtualBase: vbptr offset in object"}
 }
 
 @table(name type desc)

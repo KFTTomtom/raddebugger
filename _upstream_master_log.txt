@@ -1,0 +1,71 @@
+﻿a027a0ea use fully qualified symbol names when doing dbg info searches & when producing strings in debug info table evals
+0d3539d7 highlighting for views; view doc / autocompletion coverage
+2eb0b8b2 ctrl -> d
+0e3c821e collapse ctrl/d bps
+0d8a6a4d ctrl -> d type pass
+a90fbc84 merge ctrl_init / d_init
+2388db39 fold ctrl layer into dbg engine - no benefit to disallowing dependence on debug engine types inside of ctrl, and it has been causing unnecessary barriers for eventual eval magic.
+d2eb9628 test cases for ambiguous statics across many units; comments in exprs
+86066018 helper for writing COFF objs and libs
+4b7dd960 pass args to the torture
+ffd6f10b wildcard match target tests
+4786dc41 wildcard matcher
+ffc6905b kind mask should be const value
+60c4518d run debug tests first
+48f2a931 clang build fix
+a2aab596 add support for /DEBUG:GHASH
+4815007a use fully qualified type names in unpacked eval types - fixes namespaced type views
+21a150a1 turn off symbol-lookup highlighting following dot operators
+6f2b8540 store partially-qualified names in generated RDIs; adjust debugger to do fully-qualified lookups when appropriate
+8cf14b5a minor fix
+fda0a975 equip namespace records with container info
+581c102b sort deduplicated namespace map before producing namespaces
+5fb1ef4d fix global vmap baking determinism - eliminate dupes
+16ea0603 fix source of vmap baking determinism issue, + fix use-after-free from cross-lane scratch usage
+43c3d5e3 test param flag
+52875a2d fix regression in RDI make local
+e8e9ad20 further pdb namespaces progress; fix compile-only output for /o MSVC deprecation
+e4bd6d50 revert commit that deleted container-from-procedure APIs for whatever reason
+01682dee bump to 26
+d607d637 build fixes
+d7cc06f5 show top five slow tests in the summary
+0a791e58 add support for LLVM ghash sections
+cd4f81d4 time tests
+9e19fe51 prettify elapsed time formatter
+e6f49aad test stripped PDB
+aefd73e5 test public symbols
+4decc0d9 test GSI procs and typedefs
+bc43fe9b only enable cursor trails if not click+dragging; redundant animation in that case
+897ffc6b file path evaluation activation in watch windows -> switch to file
+ee2dcbee fix idx shadowing lookup bug in rdim_bake_name_map_insert
+03d1575c non-scope, non-type namespace gathering / gathering from pdb & baking & dumping
+5e81f124 debug constant data evaluation spaces -> read from rdi data directly
+7a59548d remove 'Symbols' from section titles, now that old sections are gone
+881e19c8 get debugger onto new location info & symbol format
+6764e128 setting for preferring displaying pointer addresses before contents
+2bf57c06 new location info format dumping
+7383cdc5 fix dumper for new symbols/locations format; produce dummy global unit for global stream pdb info - avoid stomping on 0 unit; fix stomping of location info, from missing lane sync
+bec7e630 fix duplicate nil local, equip locals with their scopes as symbol containers
+e281528d rdi pass checkpoint: rdi baking; scope-organized locals gathering / sorting / organizing; plug into serialization path
+290590b8 extend udts w/ container info
+e6d28d40 start plugging in new rdi symbols to dumper
+22186498 fix busted section codes
+b1e69485 rdi: extend per-unit info with symbol ranges; build into baker
+57e4b69e adjust rdi make to keep per-unit info organization - flatten / join in baker, to ensure unit-sorted order
+b7644a1d notes
+a1978d9f sketch out more locals baking stuff, + notes for unit-arrangement pass
+abb01999 checkpoint on new local baking
+d68e19db finish almost all new baking for new symbols/location-info, just missing locals
+a190051d checkpoint on new symbol serialization
+cff7a786 fold voffs/toffs/constants into location case list, plug into converters
+4ea7f86d checkpoint on new simplified location info baking. plug in constant data baking, bytecode baking
+4db9a47d new packed location constructions; namespace container baking; feed procedures/constants into new symbol baking path
+131d1490 first pass at new unified & tighter symbol location info baking
+911e8c13 new location info baking layout computation - symbol-inlined locations in most cases, + indirected to set elements / bytecode / constant data as needed
+424549b5 sketch out new location representation
+eff69324 sketch out first part of new unified symbol table baking pass, sketch out new simplified sections
+270d7322 test GSI
+e1ab7f49 GSI parser discarded last symbol in the chain
+217b761c build GSI and PSI before DBI
+9bf0f773 size in symbol header was incorrectly including alignment bytes
+15ff96f4 rename macro for declaring tests

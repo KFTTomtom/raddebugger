@@ -4865,7 +4865,7 @@ rd_push_window_title(Arena *arena)
     prof_path = str8_chop_last_dot(prof_path);
     project_name = str8_skip_last_slash(prof_path);
   }
-  String8 result = push_str8f(arena, "%S - %s", project_name, BUILD_TITLE " (" BUILD_VERSION_STRING_LITERAL " " BUILD_RELEASE_PHASE_STRING_LITERAL ")");
+  String8 result = push_str8f(arena, "%S - %s", project_name, BUILD_TITLE_STRING_LITERAL);
   return result;
 }
 

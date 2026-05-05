@@ -473,7 +473,56 @@ E_TYPE_ACCESS_FUNCTION_DEF(default)
             mode = E_Mode_Offset;
           }
         }
-        if(r_value != 0 && !r_is_constant_value)
+        if(member.is_virtual_base && !r_is_constant_value)
+        {
+          // Virtual base resolution (MSVC ABI):
+          //   vbptr       = *(void**)(obj + vbptr_off)
+          //   displacement = *(int32*)(vbptr + vbtable_off)   [SIGNED]
+          //   base_addr   = obj + vbptr_off + displacement
+          //   field_addr  = base_addr + member.off
+          //
+          // The IR is a strict tree (no DAG sharing), but we need `obj` on the
+          // eval stack twice. We flatten the LHS tree into an oplist, then
+          // append the vbptr resolution sequence using Pick(0) to dup TOS,
+          // and wrap everything as a single bytecode IR node.
+          E_OpList vb_ops = {0};
+          {
+            E_Space sp = e_interpret_ctx->primary_space;
+            e_append_oplist_from_irtree(arena, new_tree, &sp, &vb_ops);
+          }
+          // stack: [obj]
+          e_oplist_push_op(arena, &vb_ops, RDI_EvalOp_Pick, e_value_u64(0));
+          // stack: [obj, obj]
+          e_oplist_push_uconst(arena, &vb_ops, member.vbptr_off);
+          e_oplist_push_op(arena, &vb_ops, RDI_EvalOp_Add, e_value_u64(RDI_EvalTypeGroup_U));
+          // stack: [obj, obj+vbptr_off]
+          e_oplist_push_op(arena, &vb_ops, RDI_EvalOp_MemRead, e_value_u64(8));
+          // stack: [obj, vbptr_value]
+          if(member.vbtable_off != 0)
+          {
+            e_oplist_push_uconst(arena, &vb_ops, (U64)member.vbtable_off);
+            e_oplist_push_op(arena, &vb_ops, RDI_EvalOp_Add, e_value_u64(RDI_EvalTypeGroup_U));
+          }
+          // stack: [obj, &vbtable[vbtable_off]]
+          e_oplist_push_op(arena, &vb_ops, RDI_EvalOp_MemRead, e_value_u64(4));
+          // stack: [obj, displacement(32-bit)]
+          e_oplist_push_op(arena, &vb_ops, RDI_EvalOp_TruncSigned, e_value_u64(32));
+          // stack: [obj, displacement(sign-extended to 64-bit)]
+          e_oplist_push_uconst(arena, &vb_ops, member.vbptr_off);
+          e_oplist_push_op(arena, &vb_ops, RDI_EvalOp_Add, e_value_u64(RDI_EvalTypeGroup_U));
+          // stack: [obj, displacement+vbptr_off]
+          e_oplist_push_op(arena, &vb_ops, RDI_EvalOp_Add, e_value_u64(RDI_EvalTypeGroup_U));
+          // stack: [base_addr]
+          if(r_value != 0)
+          {
+            e_oplist_push_uconst(arena, &vb_ops, r_value);
+            e_oplist_push_op(arena, &vb_ops, RDI_EvalOp_Add, e_value_u64(RDI_EvalTypeGroup_U));
+          }
+          // stack: [field_addr]
+          String8 vb_bytecode = e_bytecode_from_oplist(arena, &vb_ops);
+          new_tree = e_irtree_bytecode_no_copy(arena, vb_bytecode);
+        }
+        else if(r_value != 0 && !r_is_constant_value)
         {
           E_IRNode *const_tree = e_irtree_const_u(arena, r_value);
           new_tree = e_irtree_binary_op_u(arena, RDI_EvalOp_Add, e_type_byte_size_from_key(new_tree_type), new_tree, const_tree);

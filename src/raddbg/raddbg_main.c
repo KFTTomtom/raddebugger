@@ -165,7 +165,7 @@
 //      the value of GetLastError() as a string. This is super useful for
 //      debugging, so you don't have to litter your own code with it.
 //      (NOTE(rjf): NtQueryInformationThread)
-// [ ] C++ virtual inheritance member visualization
+// [x] C++ virtual inheritance member visualization
 // [ ] smart scopes - expression operators for "grab me the first type X"
 // [ ] "pinning" watch expressions, to attach it to a particular scope/evaluation context
 //
@@ -230,6 +230,7 @@
 //~ rjf: Build Options
 
 #define BUILD_TITLE "The Krafton RAD Debugger"
+#define KFT_VERSION_STRING "0.2.0"
 #define OS_FEATURE_GRAPHICAL 1
 
 #define DMN_INIT_MANUAL 1

@@ -401,6 +401,9 @@ struct E_Member
   String8 name;
   U64 off;
   E_TypeKeyList inheritance_key_chain;
+  B32 is_virtual_base;
+  U32 vbptr_off;
+  U16 vbtable_off;
 };
 
 typedef struct E_MemberNode E_MemberNode;

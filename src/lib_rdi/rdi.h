@@ -890,7 +890,7 @@ X(NestedType)\
 
 #define RDI_Member_XList \
 X(RDI_MemberKind, kind)\
-X(RDI_U16, pad)\
+X(RDI_U16, vbtable_off)\
 X(RDI_U32, name_string_idx)\
 X(RDI_U32, type_idx)\
 X(RDI_U32, off)\
@@ -1396,7 +1396,7 @@ typedef struct RDI_Member RDI_Member;
 struct RDI_Member
 {
 RDI_MemberKind kind;
-RDI_U16 pad;
+RDI_U16 vbtable_off;
 RDI_U32 name_string_idx;
 RDI_U32 type_idx;
 RDI_U32 off;

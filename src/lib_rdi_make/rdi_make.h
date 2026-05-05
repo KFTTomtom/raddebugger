@@ -774,6 +774,8 @@ struct RDIM_UDTMember
   RDIM_String8 name;
   RDIM_Type *type;
   RDI_U32 off;
+  RDI_U32 vbptr_off;
+  RDI_U16 vbtable_off;
 };
 
 //- rjf: UDT enum values

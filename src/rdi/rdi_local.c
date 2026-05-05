@@ -982,7 +982,14 @@ lane_sync(); if(flags & RDI_DumpSubsetFlag_##name) ProfScope(#name)
             RDI_Member *member = &all_members[member_idx];
             String8 kind_str = rdi_string_from_member_kind(scratch.arena, member->kind);
             String8 name_str = str8_from_rdi_string_idx(rdi, member->name_string_idx);
-            dumpf("      '%S': { kind: %S, type: %u, off: %u }\n", name_str, kind_str, member->type_idx, member->off);
+            if(member->kind == RDI_MemberKind_VirtualBase)
+            {
+              dumpf("      '%S': { kind: %S, type: %u, off: %u, vbtable_off: %u }\n", name_str, kind_str, member->type_idx, member->off, member->vbtable_off);
+            }
+            else
+            {
+              dumpf("      '%S': { kind: %S, type: %u, off: %u }\n", name_str, kind_str, member->type_idx, member->off);
+            }
           }
           dumpf("    }\n");
         }

@@ -3003,10 +3003,6 @@ p2r_convert(Arena *arena, P2R_ConvertParams *params)
                     case CV_LeafKind_VBCLASS:
                     case CV_LeafKind_IVBCLASS:
                     {
-                      // TODO(rjf): log on bad offsets
-                      // TODO(rjf): handle attribs
-                      // TODO(rjf): offsets?
-                      
                       // rjf: unpack leaf
                       CV_LeafVBClass *lf = (CV_LeafVBClass *)field_leaf_first;
                       U8 *num1_ptr = (U8 *)(lf+1);
@@ -3014,13 +3010,15 @@ p2r_convert(Arena *arena, P2R_ConvertParams *params)
                       U8 *num2_ptr = num1_ptr + num1.encoded_size;
                       CV_NumericParsed num2 = cv_numeric_from_data_range(num2_ptr, field_leaf_opl);
                       
-                      // rjf: bump next read pointer past header
-                      next_read_ptr = (U8 *)(lf+1);
+                      // rjf: bump next read pointer past header + both numerics
+                      next_read_ptr = num2_ptr + num2.encoded_size;
                       
-                      // rjf: emit member
+                      // rjf: emit member with virtual base offsets
                       RDIM_UDTMember *mem = rdim_udt_push_member(arena, udts, dst_udt);
-                      mem->kind = RDI_MemberKind_VirtualBase;
-                      mem->type = p2r_type_ptr_from_itype(lf->itype);
+                      mem->kind        = RDI_MemberKind_VirtualBase;
+                      mem->type        = p2r_type_ptr_from_itype(lf->itype);
+                      mem->vbptr_off   = (RDI_U32)cv_u64_from_numeric(&num1);
+                      mem->vbtable_off = (RDI_U16)(cv_u64_from_numeric(&num2) * 4);
                     }break;
                     
                     //- rjf: VFUNCTAB

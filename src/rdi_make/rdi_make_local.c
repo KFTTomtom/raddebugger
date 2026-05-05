@@ -2571,6 +2571,11 @@ rdim_bake(Arena *arena, RDIM_BakeParams *params)
               dst_member->name_string_idx = rdim_bake_idx_from_string(bake_strings, src_member->name);
               dst_member->type_idx        = (RDI_U32)rdim_idx_from_type(src_member->type); // TODO(rjf): @u64_to_u32
               dst_member->off             = src_member->off;
+              if(src_member->kind == RDI_MemberKind_VirtualBase)
+              {
+                dst_member->off          = src_member->vbptr_off;
+                dst_member->vbtable_off  = src_member->vbtable_off;
+              }
               member_layout_off += 1;
             }
             U64 member_off_opl = member_layout_off;
