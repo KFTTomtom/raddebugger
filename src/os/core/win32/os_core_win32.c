@@ -1469,9 +1469,11 @@ win32_dialog_callback(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam, LONG_PT
 internal LONG WINAPI
 win32_exception_filter(EXCEPTION_POINTERS* exception_ptrs)
 {
+  log_infof("[CRASH] exception_filter entered, code=0x%08x quiet=%d",
+            exception_ptrs->ExceptionRecord->ExceptionCode, win32_g_is_quiet);
   if(win32_g_is_quiet)
   {
-    ExitProcess(1);
+    win32_g_gen_dump = 1;
   }
   
   static volatile LONG first = 0;

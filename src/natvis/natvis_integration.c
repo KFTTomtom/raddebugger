@@ -144,6 +144,29 @@ nv_expr_is_safe_for_rad(String8 expr, String8 pattern, B32 log_rejection)
 {
   if(expr.size == 0 || expr.str == 0) { return 0; }
   
+  for(U64 i = 0; i < expr.size; i += 1)
+  {
+    U8 c = expr.str[i];
+    if(c < 0x20 && c != '\t' && c != '\n' && c != '\r')
+    {
+      if(log_rejection)
+      {
+        log_infof("natvis: SKIP \"%.*s\" \xe2\x80\x94 expr contains non-printable byte 0x%02x at offset %llu",
+          (int)(pattern.size > 120 ? 120 : pattern.size), pattern.str, c, i);
+      }
+      return 0;
+    }
+    if(c > 0x7e)
+    {
+      if(log_rejection)
+      {
+        log_infof("natvis: SKIP \"%.*s\" \xe2\x80\x94 expr contains non-ASCII byte 0x%02x at offset %llu",
+          (int)(pattern.size > 120 ? 120 : pattern.size), pattern.str, c, i);
+      }
+      return 0;
+    }
+  }
+  
   String8 unsafe_needles[] = {
     str8_lit_comp("strstr("),
     str8_lit_comp("strlen("),

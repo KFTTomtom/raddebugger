@@ -636,7 +636,7 @@ e_type_key_from_expr(E_Expr *expr)
           if(str8_match(inst->name, expr->string, 0) && !e_type_key_match(e_type_key_zero(), inst->type_key))
           {
             result = inst->type_key;
-            log_infof("[TYPE-KEY-FROM-EXPR] wildcard fallback: '%S' => type_key kind=%u idx=%u dbgi=%u",
+            e_log_autohook("[TYPE-KEY-FROM-EXPR] wildcard fallback: '%S' => type_key kind=%u idx=%u dbgi=%u",
                       expr->string, result.u32[0], result.u32[1], result.u32[2]);
             break;
           }
@@ -712,7 +712,7 @@ e_push_type_parse_from_text_tokens(Arena *arena, String8 text, E_TokenArray toke
       if(!e_type_key_match(e_type_key_zero(), type_key))
       {
         E_Type *resolved = e_type_from_key(type_key);
-        log_infof("[TYPE-PARSE] token='%S' resolved to type='%S' kind=%u (from_wildcard=%d, idx=%u, dbgi=%u)",
+        e_log_autohook("[TYPE-PARSE] token='%S' resolved to type='%S' kind=%u (from_wildcard=%d, idx=%u, dbgi=%u)",
                   token_string,
                   resolved ? resolved->name : str8_lit("(null)"),
                   type_key.u32[0], from_wildcard, type_key.u32[1], type_key.u32[2]);

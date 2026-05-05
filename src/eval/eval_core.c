@@ -1,6 +1,14 @@
 // Copyright (c) Epic Games Tools
 // Licensed under the MIT license (https://opensource.org/license/mit/)
 
+#ifndef E_LOG_AUTOHOOK_VERBOSE
+# define E_LOG_AUTOHOOK_VERBOSE 0
+#endif
+
+#define E_LOG_AUTOHOOK_MAX_PER_FRAME 64
+thread_static U32 e_autohook_log_count = 0;
+#define e_log_autohook(...) do { if(E_LOG_AUTOHOOK_VERBOSE && e_autohook_log_count < E_LOG_AUTOHOOK_MAX_PER_FRAME) { e_autohook_log_count++; log_infof(__VA_ARGS__); } } while(0)
+
 ////////////////////////////////
 //~ rjf: Generated Code
 
@@ -1221,7 +1229,7 @@ e_push_auto_hook_matches_from_type_key(Arena *arena, E_TypeKey type_key)
                   inst->inst_expr = e_parse_from_string(wildcard_inst_string).expr;
                   inst->type_key = e_type_key_zero();
                   
-                  log_infof("[WC-CAPTURE] pattern matched type '%S', wildcard name='%S', captured text='%S'",
+                  e_log_autohook("[WC-CAPTURE] pattern matched type '%S', wildcard name='%S', captured text='%S'",
                             type_string, inst->name, wildcard_inst_string);
                   
                   //- rjf: try to resolve the wildcard's type_key by finding a
@@ -1235,7 +1243,7 @@ e_push_auto_hook_matches_from_type_key(Arena *arena, E_TypeKey type_key)
                     E_Type *parent_type = e_type_from_key(type_key);
                     if(parent_type != 0 && parent_type->count > 0 && parent_type->members != 0)
                     {
-                      log_infof("[WC-MEMBER-SCAN] parent type '%S' has %llu members, looking for 'ElementType' member...",
+                      e_log_autohook("[WC-MEMBER-SCAN] parent type '%S' has %llu members, looking for 'ElementType' member...",
                                 parent_type->name, parent_type->count);
                       for(U64 mi = 0; mi < parent_type->count && e_type_key_match(inst->type_key, e_type_key_zero()); mi += 1)
                       {
@@ -1259,7 +1267,7 @@ e_push_auto_hook_matches_from_type_key(Arena *arena, E_TypeKey type_key)
                           {
                             inst->type_key = unwrapped;
                             E_Type *resolved_type = e_type_from_key(unwrapped);
-                            log_infof("[WC-MEMBER-SCAN]   => resolved via 'ElementType' member: name='%S' (kind=%u, idx=%u, dbgi=%u)",
+                            e_log_autohook("[WC-MEMBER-SCAN]   => resolved via 'ElementType' member: name='%S' (kind=%u, idx=%u, dbgi=%u)",
                                       resolved_type ? resolved_type->name : str8_lit("(null)"),
                                       unwrapped.u32[0], unwrapped.u32[1], unwrapped.u32[2]);
                           }
@@ -1268,12 +1276,12 @@ e_push_auto_hook_matches_from_type_key(Arena *arena, E_TypeKey type_key)
                       }
                       if(e_type_key_match(inst->type_key, e_type_key_zero()))
                       {
-                        log_infof("[WC-MEMBER-SCAN]   => 'ElementType' member not found or not a record type");
+                        e_log_autohook("[WC-MEMBER-SCAN]   => 'ElementType' member not found or not a record type");
                       }
                     }
                     else
                     {
-                      log_infof("[WC-MEMBER-SCAN] parent type has no members (count=%llu, members=%p)",
+                      e_log_autohook("[WC-MEMBER-SCAN] parent type has no members (count=%llu, members=%p)",
                                 parent_type ? parent_type->count : 0, parent_type ? (void*)parent_type->members : 0);
                     }
                   }
@@ -1343,7 +1351,7 @@ e_push_auto_hook_matches_from_type_key(Arena *arena, E_TypeKey type_key)
                   if(!has_data && has_secondary)
                   {
                     expr_string = str8_lit("array((AllocatorInstance.SecondaryData.Data != 0) ? cast(element_type *)AllocatorInstance.SecondaryData.Data : cast(element_type *)(&AllocatorInstance + 0), ArrayNum)");
-                    log_infof("[HOOK-INLINE-ALLOC] detected inline allocator for type, using SecondaryData fallback");
+                    e_log_autohook("[HOOK-INLINE-ALLOC] detected inline allocator for type, using SecondaryData fallback");
                   }
                   break;
                 }

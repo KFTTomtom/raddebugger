@@ -526,12 +526,16 @@ E_TYPE_ACCESS_FUNCTION_DEF(default)
       }
       else if(l_restype_kind != E_TypeKind_Ptr && l_restype_kind != E_TypeKind_Array && l_restype_kind != E_TypeKind_LRef && l_restype_kind != E_TypeKind_RRef)
       {
-        Temp idx_scratch = scratch_begin(0, 0);
-        String8 l_type_str = e_type_string_from_key(idx_scratch.arena, l.type_key);
-        String8 l_res_str = e_type_string_from_key(idx_scratch.arena, l_restype);
-        log_infof("[INDEX-FAIL] Cannot index: l_type='%S' l_restype='%S' kind=%u, l.mode=%u, root_op=%u",
-                  l_type_str, l_res_str, l_restype_kind, l.mode, l.root->op);
-        scratch_end(idx_scratch);
+        if(E_LOG_AUTOHOOK_VERBOSE && e_autohook_log_count < E_LOG_AUTOHOOK_MAX_PER_FRAME)
+        {
+          e_autohook_log_count++;
+          Temp idx_scratch = scratch_begin(0, 0);
+          String8 l_type_str = e_type_string_from_key(idx_scratch.arena, l.type_key);
+          String8 l_res_str = e_type_string_from_key(idx_scratch.arena, l_restype);
+          log_infof("[INDEX-FAIL] Cannot index: l_type='%S' l_restype='%S' kind=%u, l.mode=%u, root_op=%u",
+                    l_type_str, l_res_str, l_restype_kind, l.mode, l.root->op);
+          scratch_end(idx_scratch);
+        }
         e_msgf(arena, &result.msgs, E_MsgKind_MalformedInput, exprl->range, "Cannot index into this type.");
         break;
       }
@@ -617,9 +621,9 @@ e_push_irtree_and_type_from_expr(Arena *arena, E_IRTreeAndType *root_parent, E_I
   
   //- rjf: recursion depth guard
   e_irtree_recursion_depth += 1;
-  if(e_irtree_recursion_depth > 256)
+  if(e_irtree_recursion_depth > 64)
   {
-    log_infof("[RECURSION-GUARD] depth %u exceeded limit, aborting expression evaluation", e_irtree_recursion_depth);
+    log_infof("[STACK-OVERFLOW-GUARD] depth=%u, bailing out to prevent stack overflow", e_irtree_recursion_depth);
     e_irtree_recursion_depth -= 1;
     E_IRTreeAndType bail = {&e_irnode_nil};
     ProfEnd();
@@ -895,26 +899,30 @@ e_push_irtree_and_type_from_expr(Arena *arena, E_IRTreeAndType *root_parent, E_I
         
         if(e_cache->first_wildcard_inst != 0)
         {
-          Temp log_scratch = scratch_begin(0, 0);
-          String8 cast_type_str = e_type_string_from_key(log_scratch.arena, cast_type);
-          String8 casted_type_str = e_type_string_from_key(log_scratch.arena, casted_type);
-          log_infof("[CAST-DIAG] cast_type='%S' kind=%u size=%llu, casted_type='%S' kind=%u size=%llu, in_grp=%u out_grp=%u conv=%u, cast_expr_kind=%u, root_op=%u",
-                    cast_type_str, cast_type_kind, cast_type_byte_size,
-                    casted_type_str, casted_type_kind, casted_type_byte_size,
-                    in_group, out_group, conversion_rule,
-                    cast_type_expr->kind, casted_tree.root->op);
-          scratch_end(log_scratch);
+          if(E_LOG_AUTOHOOK_VERBOSE && e_autohook_log_count < E_LOG_AUTOHOOK_MAX_PER_FRAME)
+          {
+            e_autohook_log_count++;
+            Temp log_scratch = scratch_begin(0, 0);
+            String8 cast_type_str = e_type_string_from_key(log_scratch.arena, cast_type);
+            String8 casted_type_str = e_type_string_from_key(log_scratch.arena, casted_type);
+            log_infof("[CAST-DIAG] cast_type='%S' kind=%u size=%llu, casted_type='%S' kind=%u size=%llu, in_grp=%u out_grp=%u conv=%u, cast_expr_kind=%u, root_op=%u",
+                      cast_type_str, cast_type_kind, cast_type_byte_size,
+                      casted_type_str, casted_type_kind, casted_type_byte_size,
+                      in_group, out_group, conversion_rule,
+                      cast_type_expr->kind, casted_tree.root->op);
+            scratch_end(log_scratch);
+          }
         }
         
         // rjf: bad conditions? -> error if applicable, exit
         if(casted_tree.root->op == 0)
         {
-          if(e_cache->first_wildcard_inst != 0) { log_infof("[CAST-DIAG]   => BAIL: casted_tree.root->op == 0"); }
+          e_log_autohook("[CAST-DIAG]   => BAIL: casted_tree.root->op == 0");
           break;
         }
         else if(cast_type_kind == E_TypeKind_Null)
         {
-          if(e_cache->first_wildcard_inst != 0) { log_infof("[CAST-DIAG]   => BAIL: cast_type_kind == Null"); }
+          e_log_autohook("[CAST-DIAG]   => BAIL: cast_type_kind == Null");
           break;
         }
         else if(conversion_rule != RDI_EvalConversionKind_Noop &&
@@ -1774,7 +1782,7 @@ e_push_irtree_and_type_from_expr(Arena *arena, E_IRTreeAndType *root_parent, E_I
                 {
                   generated = 1;
                   result = e_push_irtree_and_type_from_expr(arena, parent, &e_default_identifier_resolution_rule, disallow_autohooks, 1, inst->inst_expr);
-                  log_infof("[WC-RESOLVE] identifier '%S' matched wildcard '%S', eval type_key=(kind=%u,idx=%u,dbgi=%u), inst type_key=(kind=%u,idx=%u,dbgi=%u)",
+                  e_log_autohook("[WC-RESOLVE] identifier '%S' matched wildcard '%S', eval type_key=(kind=%u,idx=%u,dbgi=%u), inst type_key=(kind=%u,idx=%u,dbgi=%u)",
                             string, inst->name,
                             result.type_key.u32[0], result.type_key.u32[1], result.type_key.u32[2],
                             inst->type_key.u32[0], inst->type_key.u32[1], inst->type_key.u32[2]);
@@ -1782,15 +1790,15 @@ e_push_irtree_and_type_from_expr(Arena *arena, E_IRTreeAndType *root_parent, E_I
                      !e_type_key_match(e_type_key_zero(), inst->type_key))
                   {
                     result.type_key = inst->type_key;
-                    log_infof("[WC-RESOLVE]   => FALLBACK used: inst->type_key applied");
+                    e_log_autohook("[WC-RESOLVE]   => FALLBACK used: inst->type_key applied");
                   }
                   else if(!e_type_key_match(e_type_key_zero(), result.type_key))
                   {
-                    log_infof("[WC-RESOLVE]   => standard eval resolved type_key successfully");
+                    e_log_autohook("[WC-RESOLVE]   => standard eval resolved type_key successfully");
                   }
                   else
                   {
-                    log_infof("[WC-RESOLVE]   => BOTH zero — type resolution FAILED");
+                    e_log_autohook("[WC-RESOLVE]   => BOTH zero — type resolution FAILED");
                   }
                   break;
                 }
@@ -1961,7 +1969,7 @@ e_push_irtree_and_type_from_expr(Arena *arena, E_IRTreeAndType *root_parent, E_I
                 
                 // rjf: find match
                 DI_Match match = di_match_from_string(string, match_disambiguating_idx, e_base_ctx->primary_dbg_info->dbgi_key, 0);
-                B32 dbgmatch_log = (e_cache->first_wildcard_inst != 0);
+                B32 dbgmatch_log = E_LOG_AUTOHOOK_VERBOSE && (e_cache->first_wildcard_inst != 0) && (e_autohook_log_count < E_LOG_AUTOHOOK_MAX_PER_FRAME);
                 if(dbgmatch_log)
                 {
                   log_infof("[DBGINFO-MATCH] di_match_from_string('%S') => idx=%u, section=%u",
@@ -2636,7 +2644,9 @@ e_push_irtree_and_type_from_expr(Arena *arena, E_IRTreeAndType *root_parent, E_I
       {
         result.type_key = e_type_key_cons_meta_summary(result.type_key, t->summary_expr_string);
       }
+      if(E_LOG_AUTOHOOK_VERBOSE && e_autohook_log_count < E_LOG_AUTOHOOK_MAX_PER_FRAME)
       {
+        e_autohook_log_count++;
         Temp oh_scratch = scratch_begin(0, 0);
         String8 res_str = e_type_string_from_key(oh_scratch.arena, result.type_key);
         String8 ovr_str = e_type_string_from_key(oh_scratch.arena, t->overridden->type_key);
@@ -2656,8 +2666,9 @@ e_push_irtree_and_type_from_expr(Arena *arena, E_IRTreeAndType *root_parent, E_I
     if(!disallow_autohooks && result.mode != E_Mode_Null)
     {
       E_AutoHookMatchList matches = e_auto_hook_matches_from_type_key(result.type_key);
-      if(matches.count == 0 && e_cache->first_wildcard_inst != 0)
+      if(E_LOG_AUTOHOOK_VERBOSE && matches.count == 0 && e_cache->first_wildcard_inst != 0 && e_autohook_log_count < E_LOG_AUTOHOOK_MAX_PER_FRAME)
       {
+        e_autohook_log_count++;
         Temp ahlog_scratch = scratch_begin(0, 0);
         String8 rtype_str = e_type_string_from_key(ahlog_scratch.arena, result.type_key);
         log_infof("[AUTOHOOK-MISS] no matches for type='%S' kind=%u mode=%u",
@@ -2669,7 +2680,7 @@ e_push_irtree_and_type_from_expr(Arena *arena, E_IRTreeAndType *root_parent, E_I
         B32 e_is_poisoned = e_expr_is_poisoned(match->expr, result.type_key);
         if(e_is_poisoned)
         {
-          log_infof("[AUTOHOOK-POISON] hook expr is poisoned, skipping");
+          e_log_autohook("[AUTOHOOK-POISON] hook expr is poisoned, skipping");
         }
         if(!e_is_poisoned)
         {

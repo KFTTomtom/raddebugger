@@ -11943,6 +11943,9 @@ rd_frame(void)
         { 0, 1, str8_lit_comp("TRefCountPtr<?>"),            str8_lit_comp("Reference"),                   {0} },
         { 0, 1, str8_lit_comp("FNameEntry"),                 str8_lit_comp("AnsiName, Header.Len"),        {0} },
         { 0, 1, str8_lit_comp("FNameEntryId"),               str8_lit_comp("*(cast(FNameEntry *)(&GNameBlocksDebug[Value >> FNameDebugVisualizer::OffsetBits][FNameDebugVisualizer::EntryStride * (Value & FNameDebugVisualizer::OffsetMask)]))"), {0} },
+        { 0, 1, str8_lit_comp("FName"),                      str8_lit_comp("ComparisonIndex"),             {0} },
+        { 0, 1, str8_lit_comp("FGameplayTag"),               str8_lit_comp("TagName"),                     {0} },
+        { 0, 1, str8_lit_comp("FGameplayTagContainer"),      str8_lit_comp("array(cast(FGameplayTag *)GameplayTags.AllocatorInstance.Data, GameplayTags.ArrayNum)"), str8_lit_comp("GameplayTags.ArrayNum") },
         { 0, 1, str8_lit_comp("TObjectPtr<?>"),              str8_lit_comp("DebugPtr"),                    {0} },
         { 0, 1, str8_lit_comp("TOptional<?>"),               str8_lit_comp("bIsSet ? TypedValue"),         {0} },
         { 0, 1, str8_lit_comp("FColor"),                     str8_lit_comp("hex(color(Bits))"),            {0} },
@@ -12049,9 +12052,9 @@ rd_frame(void)
       // hot-reload changed files
       nv_check_reload(rd_state->natvis_state);
       
-      // register NatVis type visualizers as auto-hooks (after user type_views,
-      // so user definitions take priority)
-      nv_register_auto_hooks(rd_state->natvis_state, scratch.arena, auto_hook_map);
+      // NatVis auto-hooks DISABLED — built-in type_views are sufficient,
+      // and NatVis hooks cause corruption / perf issues (see session 2026-04-28)
+      // nv_register_auto_hooks(rd_state->natvis_state, scratch.arena, auto_hook_map);
     }
     
     ////////////////////////////
