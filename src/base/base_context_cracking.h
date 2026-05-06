@@ -163,6 +163,14 @@
 #endif
 
 #define BUILD_VERSION_STRING_LITERAL Stringify(BUILD_VERSION_MAJOR) "." Stringify(BUILD_VERSION_MINOR) "." Stringify(BUILD_VERSION_PATCH)
+
+// kft: fork version, displayed alongside the upstream version in the titlebar.
+// Bump on observable change (perf fix, new feature, behavior change).
+// See .cursor/rules/rad-debugger-agent.mdc "Versioning du fork KFT".
+#define KFT_VERSION_MAJOR 0
+#define KFT_VERSION_MINOR 4
+#define KFT_VERSION_PATCH 1
+#define KFT_VERSION_STRING_LITERAL Stringify(KFT_VERSION_MAJOR) "." Stringify(KFT_VERSION_MINOR) "." Stringify(KFT_VERSION_PATCH)
 #if BUILD_DEBUG
 # define BUILD_MODE_STRING_LITERAL_APPEND " [Debug]"
 #else

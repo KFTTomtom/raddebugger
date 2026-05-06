@@ -933,6 +933,7 @@ struct E_UsedExprNode
   E_UsedExprNode *next;
   E_UsedExprNode *prev;
   E_Expr *expr;
+  E_TypeKey type_key;
 };
 
 typedef struct E_UsedExprSlot E_UsedExprSlot;
@@ -1118,6 +1119,18 @@ struct E_Cache
   //- rjf: [ir] string ID cache
   U64 string_id_gen;
   E_StringIDMap *string_id_map;
+  
+  // kft: cross-frame cache persistence fingerprint - if the eval base context
+  // is byte-for-byte identical to the previous frame, we can skip the entire
+  // arena_pop_to + cache rebuild and reuse all cached IRtrees, types, autohook
+  // matches, and bytecodes from the previous frame.
+  U64 last_base_ctx_fingerprint;
+  B32 last_base_ctx_fingerprint_valid;
+  // kft: per-field fingerprints to identify WHICH field invalidates the cache
+  U64 last_fp_thread;       // ip_voff + ip_vaddr + unwind_count + arch
+  U64 last_fp_dbg_infos;    // dbg_infos_count + each (dbgi_key, rdi)
+  U64 last_fp_modules;      // modules_count + each (vaddr_range, dbg_info_num, arch, space)
+  U64 last_fp_space_gen;    // space_gen(thread_reg_space) + space_gen(thread_process_space)
 };
 
 ////////////////////////////////
@@ -1334,5 +1347,64 @@ internal Rng1U64 e_range_from_eval(E_Eval eval);
 //~ rjf: Debug Functions
 
 internal String8 e_debug_log_from_expr_string(Arena *arena, String8 string);
+
+////////////////////////////////
+//~ kft: Eval Perf Instrumentation (temporary, for diagnosing post-merge eval-time lag)
+
+typedef struct E_PerfStats E_PerfStats;
+struct E_PerfStats
+{
+  U64 leaf_type_key_calls;
+  U64 leaf_type_key_us;
+  U64 di_match_hits;
+  U64 push_autohook_calls;
+  U64 push_autohook_us;
+  U64 autohook_match_calls;
+  U64 autohook_match_hits;
+  U64 irtree_root_calls;
+  U64 irtree_root_us;
+  // kft: hot path coverage
+  U64 irtree_from_bundle_calls;
+  U64 irtree_from_bundle_us;
+  U64 irtree_from_bundle_cache_misses;
+  U64 irtree_from_key_calls;
+  U64 irtree_from_key_us;
+  U64 select_base_ctx_calls;
+  U64 push_irtree_total_calls;
+  U64 push_irtree_total_us;
+  // kft: characterize the autohook nested-chain hypothesis.
+  // - `autohook_tasks_pushed` = how many auto-hook tasks were enqueued total
+  //   (each match->expr added to the worklist in `e_push_irtree_and_type_from_expr`).
+  //   High number = many nested view rules triggering each other (FName -> FNameEntryId -> FNameEntry -> ...)
+  // - `push_irtree_max_depth` = max recursion depth of e_push_irtree_and_type_from_expr seen this dump cycle.
+  //   High depth = chain explodes recursively, likely the root cause of the lag.
+  // - `push_irtree_current_depth` = live counter (incremented on entry, decremented on exit).
+  U64 autohook_tasks_pushed;
+  U64 push_irtree_max_depth;
+  U64 push_irtree_current_depth;
+  // kft: cross-frame cache reuse counter (frames where we skipped the wipe)
+  U64 select_base_ctx_skipped;
+  // kft: per-field invalidation reasons (count which field caused the wipe)
+  U64 wipe_thread_change;
+  U64 wipe_dbg_infos_change;
+  U64 wipe_modules_change;
+  U64 wipe_space_gen_change;
+  U64 wipe_first_or_multiple_change;
+  // kft: top-N expensive bundle root expressions per dump cycle.
+  // Captures the most expensive irtree generations (cache misses) so we can
+  // see *which* expressions are slow when the cross-frame cache fingerprint
+  // is matching but new expressions still need to be evaluated (typical case:
+  // user expanded a TArray and is scrolling through previously-unseen indices).
+  #define E_PERF_TOPK_MAX 8
+  #define E_PERF_TOPK_STR_MAX 96
+  U64 topk_count;
+  U64 topk_us[E_PERF_TOPK_MAX];
+  U8  topk_str[E_PERF_TOPK_MAX][E_PERF_TOPK_STR_MAX];
+  U64 topk_str_len[E_PERF_TOPK_MAX];
+};
+extern E_PerfStats e_perf_stats;
+
+internal void e_perf_stats_dump_to_file(String8 file_path);
+internal void e_perf_stats_topk_record(String8 expr_string, U64 us);
 
 #endif // EVAL_CORE_H

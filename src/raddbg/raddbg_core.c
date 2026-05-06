@@ -4880,7 +4880,7 @@ rd_push_window_title(Arena *arena)
     prof_path = str8_chop_last_dot(prof_path);
     project_name = str8_skip_last_slash(prof_path);
   }
-  String8 result = push_str8f(arena, "%S - %s", project_name, BUILD_TITLE " (" BUILD_VERSION_STRING_LITERAL " " BUILD_RELEASE_PHASE_STRING_LITERAL ")");
+  String8 result = push_str8f(arena, "%S - %s", project_name, BUILD_TITLE " (" BUILD_VERSION_STRING_LITERAL " " BUILD_RELEASE_PHASE_STRING_LITERAL ", KFT " KFT_VERSION_STRING_LITERAL ")");
   return result;
 }
 
@@ -10470,6 +10470,25 @@ rd_frame(void)
   Temp scratch = scratch_begin(0, 0);
   log_scope_begin();
   rd_state->frame_depth += 1;
+  
+  // kft: dump eval perf stats once per second (temporary instrumentation)
+  {
+    local_persist U64 _kft_perf_last_dump_us = 0;
+    local_persist String8 _kft_perf_log_path = {0};
+    U64 now_us = os_now_microseconds();
+    if(_kft_perf_log_path.size == 0)
+    {
+      String8 user_program_data_path = os_get_process_info()->user_program_data_path;
+      _kft_perf_log_path = push_str8f(rd_state->arena, "%S/raddbg/logs/eval_perf.raddbg_log", user_program_data_path);
+      os_write_data_to_file_path(_kft_perf_log_path, str8_zero());
+      _kft_perf_last_dump_us = now_us;
+    }
+    if(now_us - _kft_perf_last_dump_us >= 1000000)
+    {
+      e_perf_stats_dump_to_file(_kft_perf_log_path);
+      _kft_perf_last_dump_us = now_us;
+    }
+  }
   
   //////////////////////////////
   //- rjf: (DEBUG) take top-level cfg roots, stringize them, and store them to hash store

@@ -618,12 +618,18 @@ BasicCase("float64", F64)
 internal E_TypeKey
 e_leaf_type_key_from_name(String8 name)
 {
+  U64 _kft_perf_t0 = os_now_microseconds();
+  e_perf_stats.leaf_type_key_calls += 1;
   E_TypeKey key = e_leaf_builtin_type_key_from_name(name);
-  if(!e_type_key_match(e_type_key_zero(), key))
+  // kft: RDI lookup only if builtin lookup failed - inverts upstream guard
+  // which had reversed logic. Required for resolving non-builtin types like
+  // function-scoped local structs (e.g. FSquadRef inside TArray<FSquadRef>).
+  if(e_type_key_match(e_type_key_zero(), key))
   {
     DI_Match match = di_match_from_string(name, 0, e_base_ctx->primary_dbg_info->dbgi_key, 0);
     if(match.section_kind == RDI_SectionKind_TypeNodes)
     {
+      e_perf_stats.di_match_hits += 1;
       Access *access = access_open();
       RDI_Parsed *rdi = di_rdi_from_key(access, match.key, 0, 0);
       for EachIndex(idx, e_base_ctx->dbg_infos_count)
@@ -640,6 +646,7 @@ e_leaf_type_key_from_name(String8 name)
       access_close(access);
     }
   }
+  e_perf_stats.leaf_type_key_us += os_now_microseconds() - _kft_perf_t0;
   return key;
 }
 
@@ -655,6 +662,20 @@ e_type_key_from_expr(E_Expr *expr)
     case E_ExprKind_LeafIdentifier:
     {
       result = e_leaf_type_key_from_name(expr->string);
+      // kft: if standard lookup failed and we are inside a wildcard auto-hook,
+      // fall back to the resolved wildcard type_key (e.g. element type from
+      // a parent TArray<X> hook that captured X).
+      if(e_type_key_match(result, e_type_key_zero()) && e_cache != 0 && e_cache->first_wildcard_inst != 0)
+      {
+        for(E_AutoHookWildcardInst *inst = e_cache->first_wildcard_inst; inst != 0; inst = inst->next)
+        {
+          if(str8_match(inst->name, expr->string, 0) && !e_type_key_match(e_type_key_zero(), inst->type_key))
+          {
+            result = inst->type_key;
+            break;
+          }
+        }
+      }
     }break;
     case E_ExprKind_TypeIdent:
     {

@@ -773,6 +773,79 @@ e_select_base_ctx(E_BaseCtx *ctx)
   if(ctx->dbg_infos == 0)        { ctx->dbg_infos = &e_dbg_info_nil; }
   if(ctx->primary_dbg_info == 0) { ctx->primary_dbg_info = &e_dbg_info_nil; }
   e_base_ctx = ctx;
+  // kft: count how many times the cache is wiped (frame-rate eval cycle)
+  e_perf_stats.select_base_ctx_calls += 1;
+  
+  // kft: cross-frame cache persistence
+  // Compute a fingerprint of all eval-cache-affecting context. If unchanged,
+  // skip the entire arena pop + reallocation cycle and reuse last frame's
+  // bundles, IRtrees, types, autohook matches. Massive win for the steady-
+  // state UI-redraw frames (mouse hover, scroll) when stopped at a breakpoint.
+  U64 fp_thread = 5381;
+  fp_thread = e_hash_from_string(fp_thread, str8_struct(&ctx->thread_ip_voff));
+  fp_thread = e_hash_from_string(fp_thread, str8_struct(&ctx->thread_ip_vaddr));
+  fp_thread = e_hash_from_string(fp_thread, str8_struct(&ctx->thread_unwind_count));
+  fp_thread = e_hash_from_string(fp_thread, str8_struct(&ctx->thread_arch));
+  
+  U64 fp_dbg_infos = 5381;
+  fp_dbg_infos = e_hash_from_string(fp_dbg_infos, str8_struct(&ctx->dbg_infos_count));
+  for(U64 i = 0; i < ctx->dbg_infos_count; i += 1)
+  {
+    fp_dbg_infos = e_hash_from_string(fp_dbg_infos, str8_struct(&ctx->dbg_infos[i].dbgi_key));
+    fp_dbg_infos = e_hash_from_string(fp_dbg_infos, str8_struct(&ctx->dbg_infos[i].rdi));
+  }
+  
+  U64 fp_modules = 5381;
+  fp_modules = e_hash_from_string(fp_modules, str8_struct(&ctx->modules_count));
+  for(U64 i = 0; i < ctx->modules_count; i += 1)
+  {
+    fp_modules = e_hash_from_string(fp_modules, str8_struct(&ctx->modules[i].vaddr_range));
+    fp_modules = e_hash_from_string(fp_modules, str8_struct(&ctx->modules[i].dbg_info_num));
+    fp_modules = e_hash_from_string(fp_modules, str8_struct(&ctx->modules[i].arch));
+    fp_modules = e_hash_from_string(fp_modules, str8_struct(&ctx->modules[i].space));
+  }
+  
+  U64 fp_space_gen = 5381;
+  if(ctx->space_gen != 0)
+  {
+    U64 gen = ctx->space_gen(ctx->thread_reg_space);
+    fp_space_gen = e_hash_from_string(fp_space_gen, str8_struct(&gen));
+    gen = ctx->space_gen(ctx->thread_process_space);
+    fp_space_gen = e_hash_from_string(fp_space_gen, str8_struct(&gen));
+  }
+  
+  if(e_cache->last_base_ctx_fingerprint_valid &&
+     e_cache->last_fp_thread    == fp_thread &&
+     e_cache->last_fp_dbg_infos == fp_dbg_infos &&
+     e_cache->last_fp_modules   == fp_modules &&
+     e_cache->last_fp_space_gen == fp_space_gen)
+  {
+    // Reuse the cache as-is. e_base_ctx already updated to ctx (which has
+    // identical observable state). Skip the wipe entirely.
+    e_perf_stats.select_base_ctx_skipped += 1;
+    return;
+  }
+  
+  // Attribute which field changed (for diagnosis - count multi-changes once)
+  if(!e_cache->last_base_ctx_fingerprint_valid)
+  {
+    e_perf_stats.wipe_first_or_multiple_change += 1;
+  }
+  else
+  {
+    U32 changes = 0;
+    if(e_cache->last_fp_thread    != fp_thread)    { e_perf_stats.wipe_thread_change    += 1; changes += 1; }
+    if(e_cache->last_fp_dbg_infos != fp_dbg_infos) { e_perf_stats.wipe_dbg_infos_change += 1; changes += 1; }
+    if(e_cache->last_fp_modules   != fp_modules)   { e_perf_stats.wipe_modules_change   += 1; changes += 1; }
+    if(e_cache->last_fp_space_gen != fp_space_gen) { e_perf_stats.wipe_space_gen_change += 1; changes += 1; }
+    if(changes >= 2) { e_perf_stats.wipe_first_or_multiple_change += 1; }
+  }
+  e_cache->last_fp_thread    = fp_thread;
+  e_cache->last_fp_dbg_infos = fp_dbg_infos;
+  e_cache->last_fp_modules   = fp_modules;
+  e_cache->last_fp_space_gen = fp_space_gen;
+  e_cache->last_base_ctx_fingerprint = fp_thread ^ fp_dbg_infos ^ fp_modules ^ fp_space_gen;
+  e_cache->last_base_ctx_fingerprint_valid = 1;
   
   //- rjf: reset the evaluation cache
   arena_pop_to(e_cache->arena, e_cache->arena_eval_start_pos);
@@ -1010,8 +1083,14 @@ e_parse_from_bundle(E_CacheBundle *bundle)
 internal E_IRTreeAndType
 e_irtree_from_bundle(E_CacheBundle *bundle)
 {
+  // kft: instrument every call (cached or miss)
+  e_perf_stats.irtree_from_bundle_calls += 1;
+  U64 _kft_t0 = os_now_microseconds();
+  B32 _kft_was_miss = 0;
   if(bundle != &e_cache_bundle_nil && !(bundle->flags & E_CacheBundleFlag_IRTree))
   {
+    e_perf_stats.irtree_from_bundle_cache_misses += 1;
+    _kft_was_miss = 1;
     bundle->flags |= E_CacheBundleFlag_IRTree;
     E_IRTreeAndType parent = e_irtree_from_key(bundle->parent_key);
     E_Parse parse = e_parse_from_bundle(bundle);
@@ -1023,6 +1102,13 @@ e_irtree_from_bundle(E_CacheBundle *bundle)
     e_msg_list_concat_in_place(&bundle->msgs, &msgs_copy);
   }
   E_IRTreeAndType result = bundle->irtree;
+  U64 _kft_dur = os_now_microseconds() - _kft_t0;
+  e_perf_stats.irtree_from_bundle_us += _kft_dur;
+  // kft: record top-K only on actual misses (cache hits are quasi-free)
+  if(_kft_was_miss && bundle != &e_cache_bundle_nil && _kft_dur >= 500)
+  {
+    e_perf_stats_topk_record(bundle->string, _kft_dur);
+  }
   return result;
 }
 
@@ -1207,6 +1293,8 @@ internal E_AutoHookMatchList
 e_push_auto_hook_matches_from_type_key(Arena *arena, E_TypeKey type_key)
 {
   ProfBeginFunction();
+  U64 _kft_perf_t0 = os_now_microseconds();
+  e_perf_stats.push_autohook_calls += 1;
   E_AutoHookMatchList matches = {0};
   if(e_ir_ctx != 0)
   {
@@ -1329,6 +1417,42 @@ e_push_auto_hook_matches_from_type_key(Arena *arena, E_TypeKey type_key)
                       access_close(wc_access);
                     }
                   }
+                  // kft: if DI lookup failed (e.g. function-scoped types like FSquadRef
+                  // inside TArray<FSquadRef>), try to resolve via the parent type's
+                  // 'ElementType' typedef member - this handles structs that the PDB
+                  // mangles differently in the type string vs the typedef name.
+                  if(e_type_key_match(inst->type_key, e_type_key_zero()) && wildcard_inst_string.size > 0)
+                  {
+                    E_Type *parent_type = e_type_from_key(type_key);
+                    if(parent_type != 0 && parent_type->count > 0 && parent_type->members != 0)
+                    {
+                      for(U64 mi = 0; mi < parent_type->count && e_type_key_match(inst->type_key, e_type_key_zero()); mi += 1)
+                      {
+                        if(str8_match(parent_type->members[mi].name, str8_lit("ElementType"), 0))
+                        {
+                          E_TypeKey member_type_key = parent_type->members[mi].type_key;
+                          E_TypeKey unwrapped = member_type_key;
+                          for(U32 depth = 0; depth < 4; depth += 1)
+                          {
+                            E_TypeKind k = e_type_kind_from_key(unwrapped);
+                            if(k == E_TypeKind_Ptr || k == E_TypeKind_LRef || k == E_TypeKind_RRef ||
+                               k == E_TypeKind_Array || k == E_TypeKind_Modifier || k == E_TypeKind_Alias)
+                            {
+                              unwrapped = e_type_key_direct(unwrapped);
+                            }
+                            else { break; }
+                          }
+                          E_TypeKind uwk = e_type_kind_from_key(unwrapped);
+                          if(uwk == E_TypeKind_Struct || uwk == E_TypeKind_Class ||
+                             uwk == E_TypeKind_Union  || uwk == E_TypeKind_Enum)
+                          {
+                            inst->type_key = unwrapped;
+                          }
+                          break;
+                        }
+                      }
+                    }
+                  }
                   if(wildcard_inst_name_node)
                   {
                     wildcard_inst_name_node = wildcard_inst_name_node->next;
@@ -1379,12 +1503,14 @@ e_push_auto_hook_matches_from_type_key(Arena *arena, E_TypeKey type_key)
     scratch_end(scratch);
   }
   ProfEnd();
+  e_perf_stats.push_autohook_us += os_now_microseconds() - _kft_perf_t0;
   return matches;
 }
 
 internal E_AutoHookMatchList
 e_auto_hook_matches_from_type_key(E_TypeKey type_key)
 {
+  e_perf_stats.autohook_match_calls += 1;
   E_AutoHookMatchList matches = {0};
   {
     U64 hash = e_hash_from_string(5381, str8_struct(&type_key));
@@ -1399,12 +1525,17 @@ e_auto_hook_matches_from_type_key(E_TypeKey type_key)
         node = n;
       }
     }
+    if(node != 0) { e_perf_stats.autohook_match_hits += 1; }
     if(node == 0)
     {
       node = push_array(e_cache->arena, E_TypeAutoHookCacheNode, 1);
       SLLQueuePush(e_cache->type_auto_hook_cache_map->slots[slot_idx].first, e_cache->type_auto_hook_cache_map->slots[slot_idx].last, node);
-      node->key = type_key;
+      // kft: compute matches FIRST, then set key. If we set key first and a
+      // recursive call enters this function for the same type during match
+      // computation, the partially-initialized node would be returned with
+      // empty matches (cache poisoning).
       node->matches = e_push_auto_hook_matches_from_type_key(e_cache->arena, type_key);
+      node->key = type_key;
     }
     matches = node->matches;
   }
@@ -1655,4 +1786,123 @@ e_debug_log_from_expr_string(Arena *arena, String8 string)
   String8 result = str8_list_join(arena, &strings, 0);
   scratch_end(scratch);
   return result;
+}
+
+
+////////////////////////////////
+//~ kft: Eval Perf Instrumentation (temporary, for diagnosing post-merge eval-time lag)
+
+E_PerfStats e_perf_stats = {0};
+
+internal void
+e_perf_stats_topk_record(String8 expr_string, U64 us)
+{
+  // Find the slot with the smallest us. If our us is bigger, evict.
+  U64 min_idx = 0;
+  U64 min_us = max_U64;
+  for(U64 i = 0; i < E_PERF_TOPK_MAX; i += 1)
+  {
+    if(i >= e_perf_stats.topk_count)
+    {
+      // empty slot
+      min_idx = i;
+      min_us = 0;
+      break;
+    }
+    if(e_perf_stats.topk_us[i] < min_us)
+    {
+      min_us = e_perf_stats.topk_us[i];
+      min_idx = i;
+    }
+  }
+  if(us > min_us)
+  {
+    if(min_idx >= e_perf_stats.topk_count)
+    {
+      e_perf_stats.topk_count = min_idx + 1;
+    }
+    e_perf_stats.topk_us[min_idx] = us;
+    U64 copy_len = expr_string.size < E_PERF_TOPK_STR_MAX ? expr_string.size : E_PERF_TOPK_STR_MAX;
+    MemoryCopy(&e_perf_stats.topk_str[min_idx][0], expr_string.str, copy_len);
+    e_perf_stats.topk_str_len[min_idx] = copy_len;
+  }
+}
+
+internal void
+e_perf_stats_dump_to_file(String8 file_path)
+{
+  Temp scratch = scratch_begin(0, 0);
+  String8 line = push_str8f(scratch.arena,
+    "frames=%llu (%llu reuse) wipe=[T:%llu D:%llu M:%llu S:%llu O:%llu] | bundle=%llu (%llu miss, %llu us) | irtree_total=%llu (%llu us, root=%llu, depth_max=%llu) | autohook_get=%llu (%llu hit) | autohook_push=%llu (%llu us, %llu tasks) | leaf=%llu (%llu us, %llu di_hit)\n",
+    e_perf_stats.select_base_ctx_calls,
+    e_perf_stats.select_base_ctx_skipped,
+    e_perf_stats.wipe_thread_change,
+    e_perf_stats.wipe_dbg_infos_change,
+    e_perf_stats.wipe_modules_change,
+    e_perf_stats.wipe_space_gen_change,
+    e_perf_stats.wipe_first_or_multiple_change,
+    e_perf_stats.irtree_from_bundle_calls,
+    e_perf_stats.irtree_from_bundle_cache_misses,
+    e_perf_stats.irtree_from_bundle_us,
+    e_perf_stats.push_irtree_total_calls,
+    e_perf_stats.push_irtree_total_us,
+    e_perf_stats.irtree_root_calls,
+    e_perf_stats.push_irtree_max_depth,
+    e_perf_stats.autohook_match_calls,
+    e_perf_stats.autohook_match_hits,
+    e_perf_stats.push_autohook_calls,
+    e_perf_stats.push_autohook_us,
+    e_perf_stats.autohook_tasks_pushed,
+    e_perf_stats.leaf_type_key_calls,
+    e_perf_stats.leaf_type_key_us,
+    e_perf_stats.di_match_hits);
+  os_append_data_to_file_path(file_path, line);
+  
+  // kft: dump top-K expensive expressions sorted by us descending
+  if(e_perf_stats.topk_count > 0)
+  {
+    // simple selection sort by descending us (max 8 entries)
+    for(U64 i = 0; i < e_perf_stats.topk_count; i += 1)
+    {
+      U64 max_idx = i;
+      for(U64 j = i + 1; j < e_perf_stats.topk_count; j += 1)
+      {
+        if(e_perf_stats.topk_us[j] > e_perf_stats.topk_us[max_idx])
+        {
+          max_idx = j;
+        }
+      }
+      if(max_idx != i)
+      {
+        // swap us
+        U64 tmp_us = e_perf_stats.topk_us[i];
+        e_perf_stats.topk_us[i] = e_perf_stats.topk_us[max_idx];
+        e_perf_stats.topk_us[max_idx] = tmp_us;
+        // swap str_len
+        U64 tmp_len = e_perf_stats.topk_str_len[i];
+        e_perf_stats.topk_str_len[i] = e_perf_stats.topk_str_len[max_idx];
+        e_perf_stats.topk_str_len[max_idx] = tmp_len;
+        // swap str (just exchange byte-by-byte)
+        for(U64 b = 0; b < E_PERF_TOPK_STR_MAX; b += 1)
+        {
+          U8 tmp = e_perf_stats.topk_str[i][b];
+          e_perf_stats.topk_str[i][b] = e_perf_stats.topk_str[max_idx][b];
+          e_perf_stats.topk_str[max_idx][b] = tmp;
+        }
+      }
+    }
+    String8List topk_list = {0};
+    str8_list_push(scratch.arena, &topk_list, str8_lit("  topK:"));
+    for(U64 i = 0; i < e_perf_stats.topk_count; i += 1)
+    {
+      String8 expr = str8(&e_perf_stats.topk_str[i][0], e_perf_stats.topk_str_len[i]);
+      str8_list_pushf(scratch.arena, &topk_list, " [%llu us]'%S'", e_perf_stats.topk_us[i], expr);
+    }
+    str8_list_push(scratch.arena, &topk_list, str8_lit("\n"));
+    String8 topk_line = str8_list_join(scratch.arena, &topk_list, 0);
+    os_append_data_to_file_path(file_path, topk_line);
+  }
+  
+  MemoryZeroStruct(&e_perf_stats);
+  scratch_end(scratch);
 }
