@@ -1401,7 +1401,11 @@ e_type_data_members_from_key(Arena *arena, E_TypeKey key)
   PaddingNode *first_padding = 0;
   PaddingNode *last_padding = 0;
   U64 padding_count = 0;
-  if((root_type_kind == E_TypeKind_Struct || root_type_kind == E_TypeKind_Class) && key.kind != E_TypeKeyKind_Cons)
+  // kft: only synthesize $padding_N members when memory layout view is enabled
+  // (driven by the "Cache Line Markers" user setting). Hides padding rows in
+  // normal use where they pollute the watch view without bringing value.
+  if(e_members_sort_by_memory_layout &&
+     (root_type_kind == E_TypeKind_Struct || root_type_kind == E_TypeKind_Class) && key.kind != E_TypeKeyKind_Cons)
   {
     for(U64 idx = 0; idx < members.count; idx += 1)
     {
