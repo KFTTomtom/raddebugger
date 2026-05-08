@@ -196,6 +196,11 @@
 
 #define BUILD_TITLE_STRING_LITERAL BUILD_TITLE " (" BUILD_VERSION_STRING_LITERAL " " BUILD_RELEASE_PHASE_STRING_LITERAL ") - " __DATE__ "" BUILD_GIT_HASH_STRING_LITERAL_APPEND BUILD_MODE_STRING_LITERAL_APPEND
 
+// kft: variant used only for in-app status bar / titlebar UI labels.
+// Kept separate from BUILD_TITLE_STRING_LITERAL so we don't perturb the RDI
+// producer_name (which would invalidate every cached .rdi file on the disk).
+#define BUILD_TITLE_STRING_LITERAL_KFT BUILD_TITLE " (" BUILD_VERSION_STRING_LITERAL " " BUILD_RELEASE_PHASE_STRING_LITERAL ", KFT " KFT_VERSION_STRING_LITERAL ") - " __DATE__ "" BUILD_GIT_HASH_STRING_LITERAL_APPEND BUILD_MODE_STRING_LITERAL_APPEND
+
 ////////////////////////////////
 //~ rjf: Zero All Undefined Options
 

@@ -1740,7 +1740,7 @@ rd_view_ui(Rng2F32 rect)
             UI_TextAlignment(UI_TextAlign_Center)
             UI_PrefWidth(ui_text_dim(10, 1))
           {
-            ui_label(str8_lit(BUILD_TITLE_STRING_LITERAL));
+            ui_label(str8_lit(BUILD_TITLE_STRING_LITERAL_KFT));
           }
         }
         
@@ -6895,7 +6895,7 @@ rd_window_frame(void)
                 UI_CtxMenu(help_menu_key) UI_PrefWidth(ui_em(50.f, 1.f)) UI_TagF("implicit")
                 {
                   UI_Row UI_TextAlignment(UI_TextAlign_Center) UI_TagF("weak")
-                    ui_label(str8_lit(BUILD_TITLE_STRING_LITERAL));
+                    ui_label(str8_lit(BUILD_TITLE_STRING_LITERAL_KFT));
                   ui_spacer(ui_em(1.f, 1.f));
                   UI_PrefHeight(ui_children_sum(1)) UI_Row UI_Padding(ui_pct(1, 0))
                   {
@@ -7374,7 +7374,7 @@ rd_window_frame(void)
           UI_PrefWidth(ui_text_dim(10, 1))
           UI_TextAlignment(UI_TextAlign_Center)
         {
-          ui_label(str8_lit(BUILD_TITLE_STRING_LITERAL));
+          ui_label(str8_lit(BUILD_TITLE_STRING_LITERAL_KFT));
         }
         
         scratch_end(scratch);
