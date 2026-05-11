@@ -4,18 +4,45 @@
 ////////////////////////////////
 //~ rjf: post-0.9.25 TODO notes
 //
+// [ ] "autos" collection, which can be evaluated
+// [ ] show "autos" inline in source code near thread?
+// [ ] step out of scopes / loops
+// [ ] memory_size(...) view for quickly evaluating memory sizes
+// [ ] value coloring view in watch window, so you can quickly scroll & see values outside of a threshold
+//
+// [ ] project/user file improvements
+//  [ ] "default" -> "untitled"
+//  [ ] should clear default project data every time the program starts
+//  [ ] new project / user should not require picking a path; should just
+//      by default go to "untitled" in default user path
+//  [ ] more things should move to user data, but project-tagged - like
+//      recent files, watches?, etc.
+//
+// [ ] killing/restarting thread performance (#780)
+// [ ] codebase-internal barrier impl (win7/linux support)
+// [ ] PDB -> RDI conversion memory usage
+// [ ] policy for closing debug info which is no longer relevant?
+// [ ] external window focusing bugs
+//
 // [ ] linux/dwarf fixes
+//  [ ] excessive CPU usage on async threads - barrier impl?
 //  [ ] step-over/step-into doesn't step successfully in many cases, just causes a continue
-//  [ ] rd_frame has no type info, should be (void -> void) - type should be generated but it
+//  [x] rd_frame has no type info, should be (void -> void) - type should be generated but it
 //      is not being hooked up correctly
 //  [ ] type views for `MyByte *` example do not match correctly
 //
 // [ ] many threads hitting conditional breakpoints -> causes 0x8000003 exception!
+// [ ] string conditional breakpoints -> size != 0 check seems to fail, can test w/ "rd_init" subprogram type gen in d2r2
+// [ ] no selected thread -> causing evaluation failures, e.g. with go-to-definition
 //
 //- evaluation space coverage pass
 // [ ] eval space reads/writes -> needs staleness/badness info - replace ctrl layer, to apply to all spaces
 // [ ] need concrete ways of referring into a space at any offset - e.g. `process.memory + 0x1234`, `file:"foo".data + 0x1234`, `thread.regs + 0x80`, etc.
 // [ ] memory view needs to take advantage of above when peeking; ensure peeking works on files etc.
+// [ ] need to eliminate accelerators from evaluation context, and build them on the fly instead -
+//     this is necessary because, for instance, the correct locals_map varies by expression, if we
+//     want to (we do) support features like "look up call stack to find local"
+// [ ] unit / module name qualification
 //
 //- memory view pass
 // [ ] toggleable ascii column
@@ -30,10 +57,10 @@
 // [ ] signify empty watch window "expression" slot more as a text field?
 //
 //- jeff notes
-// [ ] option to prefer addresses first with string ptrs
 // [ ] focus changing on f10/f11? may be related to auto_run/auto_step - look at a bin/jeffr
-// [ ] option to turn off transient tabs altogether
 // [ ] single-line viz for pointers w/ bad (unmapped) addresses
+// [ ] option to prefer addresses first with string ptrs
+// [x] option to turn off transient tabs altogether
 //
 //- namespace/locations/variables RDI pass
 // [x] RDI_Local, RDI_GlobalVariable, RDI_ThreadVariable -> RDI_Variable
@@ -57,12 +84,12 @@
 //- urgent fixes
 // [ ] (use msvc assert as an example) show fastfail exception info (code, name, etc.) - comes from ExceptionInformation @fastfail
 // [ ] stepping w/ spoofs & shadow stack enabled - writing spoof will send a stack buffer overrun event @shadow_stack_step
-// [ ] hardware breakpoints regression (global eval in ctrl)
 // [ ] native filesystem dialog, resizing raddbg window -> crash!
-// [ ] stdout/stderr path target setting is now busted >:(
+// [ ] stdout/stderr path target setting is now busted >:( (i think this is because of path confusion? check working dir)
 // [ ] target ui entry point should override built-in entry point
 // [ ] list of all tabs in palette
 // [ ] u64 + (ptr - ptr) seems to produce unexpected results - double check with C rules?
+// [x] hardware breakpoints regression (global eval in ctrl)
 //
 //- flow notes
 // [ ] "skip breakpoint, run to source", when stopped at a non-source location
@@ -73,9 +100,9 @@
 //- memory view
 // [ ] have smaller visible range than entire memory space, within some bounds (e.g. 64KB)
 // [ ] dynamically expand memory space, based on scrolling
-// [ ] fix clicking through occluded panels etc.
 // [ ] disambiguate . character in ASCII columns
-// [ ] fix type intepretations of cursor in bottom pane
+// [x] fix type intepretations of cursor in bottom pane
+// [x] fix clicking through occluded panels etc.
 //
 //- watch improvements
 // [ ] *ALL* expressions in watch windows need to be editable.
@@ -202,21 +229,21 @@
 // [ ] search-in-all-files
 //  [ ] automatically snap to search matches when searching source files
 // [ ] memory view
-//  [ ] memory view mutation controls
 //  [ ] memory view user-made annotations
 //  [ ] memory view searching
+//  [x] memory view mutation controls
 // [ ] disasm view
 //  [ ] visualize jump destinations in disasm
 //
 //- longer-term future features
 // [ ] long-term future notes from martins
-// [ ] core dump saving/loading
-// [ ] parallel call stacks view
-// [ ] parallel watch view
-// [ ] mixed native/interpreted/jit debugging
-//     - it seems python has a top-level linked list of interpreter states,
-//       which should allow the debugger to map native callstacks to python
-//       code
+//  [ ] core dump saving/loading
+//  [ ] parallel call stacks view
+//  [ ] parallel watch view
+//  [ ] mixed native/interpreted/jit debugging
+//      - it seems python has a top-level linked list of interpreter states,
+//        which should allow the debugger to map native callstacks to python
+//        code
 //
 //- code cleanup
 // [ ] eliminate explicit font parameters in the various ui paths (e.g.
@@ -250,11 +277,13 @@
 
 #define DMN_INIT_MANUAL 1
 #define D_INIT_MANUAL 1
-#define OS_GFX_INIT_MANUAL 1
+#define WM_INIT_MANUAL 1
 #define FP_INIT_MANUAL 1
 #define R_INIT_MANUAL 1
 #define FNT_INIT_MANUAL 1
 #define RD_INIT_MANUAL 1
+
+#define ARENA_TABLE_DEBUG BUILD_DEBUG
 
 ////////////////////////////////
 //~ rjf: Includes
@@ -265,11 +294,11 @@
 #include "linker/hash_table.h"
 #include "linker/lf_hash_table.h"
 #include "linker/base_ext/base_bit_array.h"
-#include "os/os_inc.h"
 #include "artifact_cache/artifact_cache.h"
 #include "rdi/rdi_local.h"
 #include "rdi_make/rdi_make_local.h"
 #include "mdesk/mdesk.h"
+#include "window_manager/window_manager_inc.h"
 #include "config/config_inc.h"
 #include "content/content.h"
 #include "file_stream/file_stream.h"
@@ -297,9 +326,7 @@
 #include "rdi_from_dwarf/rdi_from_dwarf.h"
 #include "rdi_from_dwarf/rdi_from_dwarf_2.h"
 #include "radbin/radbin.h"
-#include "regs/regs.h"
-#include "regs/rdi/regs_rdi.h"
-#include "regs/dwarf/regs_dwarf.h"
+#include "arch/arch_inc.h"
 #include "dbg_info/dbg_info.h"
 #include "disasm/disasm.h"
 #include "stap/stap_parse.h"
@@ -320,11 +347,11 @@
 #include "linker/hash_table.c"
 #include "linker/lf_hash_table.c"
 #include "linker/base_ext/base_bit_array.c"
-#include "os/os_inc.c"
 #include "artifact_cache/artifact_cache.c"
 #include "rdi/rdi_local.c"
 #include "rdi_make/rdi_make_local.c"
 #include "mdesk/mdesk.c"
+#include "window_manager/window_manager_inc.c"
 #include "config/config_inc.c"
 #include "content/content.c"
 #include "file_stream/file_stream.c"
@@ -352,9 +379,7 @@
 #include "rdi_from_dwarf/rdi_from_dwarf.c"
 #include "rdi_from_dwarf/rdi_from_dwarf_2.c"
 #include "radbin/radbin.c"
-#include "regs/regs.c"
-#include "regs/rdi/regs_rdi.c"
-#include "regs/dwarf/regs_dwarf.c"
+#include "arch/arch_inc.c"
 #include "dbg_info/dbg_info.c"
 #include "disasm/disasm.c"
 #include "stap/stap_parse.c"
@@ -414,9 +439,9 @@ ipc_signaler_thread__entry_point(void *p)
   ThreadNameF("rd_ipc_signaler_thread");
   for(;;)
   {
-    if(os_semaphore_take(ipc_sender2main_signal_semaphore, max_U64))
+    if(semaphore_take(ipc_sender2main_signal_semaphore, max_U64))
     {
-      if(os_semaphore_take(ipc_sender2main_lock_semaphore, max_U64))
+      if(semaphore_take(ipc_sender2main_lock_semaphore, max_U64))
       {
         IPCInfo *ipc_info = (IPCInfo *)ipc_sender2main_shared_memory_base;
         String8 msg = str8((U8 *)(ipc_info+1), ipc_info->msg_size);
@@ -434,9 +459,9 @@ ipc_signaler_thread__entry_point(void *p)
           cond_var_wait(ipc_s2m_ring_cv, ipc_s2m_ring_mutex, max_U64);
         }
         cond_var_broadcast(ipc_s2m_ring_cv);
-        os_send_wakeup_event();
+        wm_send_wakeup_event();
         ipc_info->msg_size = 0;
-        os_semaphore_drop(ipc_sender2main_lock_semaphore);
+        semaphore_drop(ipc_sender2main_lock_semaphore);
       }
     }
   }
@@ -447,7 +472,7 @@ ipc_signaler_thread__entry_point(void *p)
 
 internal D_WAKEUP_FUNCTION_DEF(wakeup_hook_ctrl)
 {
-  os_send_wakeup_event();
+  wm_send_wakeup_event();
 }
 
 ////////////////////////////////
@@ -548,7 +573,7 @@ entry_point(CmdLine *cmd_line)
       {
         dmn_init();
         d_init();
-        os_gfx_init();
+        wm_init();
         fp_init();
         r_init(cmd_line);
         fnt_init();
@@ -559,23 +584,23 @@ entry_point(CmdLine *cmd_line)
       //- rjf: set up shared resources for ipc to this instance; launch IPC signaler thread
       {
         Temp scratch = scratch_begin(0, 0);
-        U32 instance_pid = os_get_process_info()->pid;
+        U32 instance_pid = get_process_info()->pid;
         
         // rjf: set up cross-process sender -> main ring buffer
-        String8 ipc_sender2main_shared_memory_name = push_str8f(scratch.arena, "_raddbg_ipc_sender2main_shared_memory_%i_", instance_pid);
-        String8 ipc_sender2main_signal_semaphore_name = push_str8f(scratch.arena, "_raddbg_ipc_sender2main_signal_semaphore_%i_", instance_pid);
-        String8 ipc_sender2main_lock_semaphore_name = push_str8f(scratch.arena, "_raddbg_ipc_sender2main_lock_semaphore_%i_", instance_pid);
-        OS_Handle ipc_sender2main_shared_memory = os_shared_memory_alloc(IPC_SHARED_MEMORY_BUFFER_SIZE, ipc_sender2main_shared_memory_name);
-        ipc_sender2main_shared_memory_base = (U8 *)os_shared_memory_view_open(ipc_sender2main_shared_memory, r1u64(0, IPC_SHARED_MEMORY_BUFFER_SIZE));
+        String8 ipc_sender2main_shared_memory_name = str8f(scratch.arena, "_raddbg_ipc_sender2main_shared_memory_%i_", instance_pid);
+        String8 ipc_sender2main_signal_semaphore_name = str8f(scratch.arena, "_raddbg_ipc_sender2main_signal_semaphore_%i_", instance_pid);
+        String8 ipc_sender2main_lock_semaphore_name = str8f(scratch.arena, "_raddbg_ipc_sender2main_lock_semaphore_%i_", instance_pid);
+        SharedMemory ipc_sender2main_shared_memory = shared_memory_alloc(IPC_SHARED_MEMORY_BUFFER_SIZE, ipc_sender2main_shared_memory_name);
+        ipc_sender2main_shared_memory_base = (U8 *)shared_memory_view_open(ipc_sender2main_shared_memory, r1u64(0, IPC_SHARED_MEMORY_BUFFER_SIZE));
         ipc_sender2main_signal_semaphore = semaphore_alloc(0, 1, ipc_sender2main_signal_semaphore_name);
         ipc_sender2main_lock_semaphore = semaphore_alloc(1, 1, ipc_sender2main_lock_semaphore_name);
         
         // rjf: set up cross-process main -> sender ring buffer
-        String8 ipc_main2sender_shared_memory_name = push_str8f(scratch.arena, "_raddbg_ipc_main2sender_shared_memory_%i_", instance_pid);
-        String8 ipc_main2sender_signal_semaphore_name = push_str8f(scratch.arena, "_raddbg_ipc_main2sender_signal_semaphore_%i_", instance_pid);
-        String8 ipc_main2sender_lock_semaphore_name = push_str8f(scratch.arena, "_raddbg_ipc_main2sender_lock_semaphore_%i_", instance_pid);
-        OS_Handle ipc_main2sender_shared_memory = os_shared_memory_alloc(IPC_SHARED_MEMORY_BUFFER_SIZE, ipc_main2sender_shared_memory_name);
-        ipc_main2sender_shared_memory_base = (U8 *)os_shared_memory_view_open(ipc_main2sender_shared_memory, r1u64(0, IPC_SHARED_MEMORY_BUFFER_SIZE));
+        String8 ipc_main2sender_shared_memory_name = str8f(scratch.arena, "_raddbg_ipc_main2sender_shared_memory_%i_", instance_pid);
+        String8 ipc_main2sender_signal_semaphore_name = str8f(scratch.arena, "_raddbg_ipc_main2sender_signal_semaphore_%i_", instance_pid);
+        String8 ipc_main2sender_lock_semaphore_name = str8f(scratch.arena, "_raddbg_ipc_main2sender_lock_semaphore_%i_", instance_pid);
+        SharedMemory ipc_main2sender_shared_memory = shared_memory_alloc(IPC_SHARED_MEMORY_BUFFER_SIZE, ipc_main2sender_shared_memory_name);
+        ipc_main2sender_shared_memory_base = (U8 *)shared_memory_view_open(ipc_main2sender_shared_memory, r1u64(0, IPC_SHARED_MEMORY_BUFFER_SIZE));
         ipc_main2sender_signal_semaphore = semaphore_alloc(0, 1, ipc_main2sender_signal_semaphore_name);
         ipc_main2sender_lock_semaphore = semaphore_alloc(1, 1, ipc_main2sender_lock_semaphore_name);
         
@@ -625,7 +650,7 @@ entry_point(CmdLine *cmd_line)
               RD_WindowState *dst_ws = rd_state->first_window_state;
               for(RD_WindowState *ws = dst_ws; ws != &rd_nil_window_state; ws = ws->order_next)
               {
-                if(os_window_is_focused(ws->os))
+                if(wm_window_is_focused(ws->os))
                 {
                   dst_ws = ws;
                   break;
@@ -682,7 +707,7 @@ entry_point(CmdLine *cmd_line)
           if(ipc_command_frame)
           {
             if(ipc_main2sender_shared_memory_base != 0 &&
-               os_semaphore_take(ipc_main2sender_lock_semaphore, os_now_microseconds()+5000000))
+               semaphore_take(ipc_main2sender_lock_semaphore, now_time_us()+5000000))
             {
               IPCInfo *ipc_info = (IPCInfo *)ipc_main2sender_shared_memory_base;
               U8 *buffer = (U8 *)(ipc_info+1);
@@ -691,8 +716,8 @@ entry_point(CmdLine *cmd_line)
               String8 msg = str8_list_join(scratch.arena, &rd_state->cmd_outputs, &join);
               ipc_info->msg_size = Min(buffer_max, msg.size);
               MemoryCopy(buffer, msg.str, ipc_info->msg_size);
-              os_semaphore_drop(ipc_main2sender_signal_semaphore);
-              os_semaphore_drop(ipc_main2sender_lock_semaphore);
+              semaphore_drop(ipc_main2sender_signal_semaphore);
+              semaphore_drop(ipc_main2sender_lock_semaphore);
             }
           }
         }
@@ -721,7 +746,7 @@ entry_point(CmdLine *cmd_line)
       //- rjf: no explicit PID? -> find PID to send message to, by looking for other raddbg instances
       if(dst_pid == 0)
       {
-        U32 this_pid = os_get_process_info()->pid;
+        U32 this_pid = get_process_info()->pid;
         DMN_ProcessIter it = {0};
         dmn_process_iter_begin(&it);
         for(DMN_ProcessInfo info = {0}; dmn_process_iter_next(scratch.arena, &it, &info);)
@@ -740,23 +765,23 @@ entry_point(CmdLine *cmd_line)
       String8 ipc_sender2main_shared_memory_name = push_str8f(scratch.arena, "_raddbg_ipc_sender2main_shared_memory_%i_", dst_pid);
       String8 ipc_sender2main_signal_semaphore_name = push_str8f(scratch.arena, "_raddbg_ipc_sender2main_signal_semaphore_%i_", dst_pid);
       String8 ipc_sender2main_lock_semaphore_name = push_str8f(scratch.arena, "_raddbg_ipc_sender2main_lock_semaphore_%i_", dst_pid);
-      OS_Handle ipc_sender2main_shared_memory = os_shared_memory_alloc(IPC_SHARED_MEMORY_BUFFER_SIZE, ipc_sender2main_shared_memory_name);
-      ipc_sender2main_shared_memory_base = (U8 *)os_shared_memory_view_open(ipc_sender2main_shared_memory, r1u64(0, IPC_SHARED_MEMORY_BUFFER_SIZE));
-      ipc_sender2main_signal_semaphore = os_semaphore_alloc(0, 1, ipc_sender2main_signal_semaphore_name);
-      ipc_sender2main_lock_semaphore = os_semaphore_alloc(1, 1, ipc_sender2main_lock_semaphore_name);
+      SharedMemory ipc_sender2main_shared_memory = shared_memory_alloc(IPC_SHARED_MEMORY_BUFFER_SIZE, ipc_sender2main_shared_memory_name);
+      ipc_sender2main_shared_memory_base = (U8 *)shared_memory_view_open(ipc_sender2main_shared_memory, r1u64(0, IPC_SHARED_MEMORY_BUFFER_SIZE));
+      ipc_sender2main_signal_semaphore = semaphore_alloc(0, 1, ipc_sender2main_signal_semaphore_name);
+      ipc_sender2main_lock_semaphore = semaphore_alloc(1, 1, ipc_sender2main_lock_semaphore_name);
       String8 ipc_main2sender_shared_memory_name = push_str8f(scratch.arena, "_raddbg_ipc_main2sender_shared_memory_%i_", dst_pid);
       String8 ipc_main2sender_signal_semaphore_name = push_str8f(scratch.arena, "_raddbg_ipc_main2sender_signal_semaphore_%i_", dst_pid);
       String8 ipc_main2sender_lock_semaphore_name = push_str8f(scratch.arena, "_raddbg_ipc_main2sender_lock_semaphore_%i_", dst_pid);
-      OS_Handle ipc_main2sender_shared_memory = os_shared_memory_alloc(IPC_SHARED_MEMORY_BUFFER_SIZE, ipc_main2sender_shared_memory_name);
-      ipc_main2sender_shared_memory_base = (U8 *)os_shared_memory_view_open(ipc_main2sender_shared_memory, r1u64(0, IPC_SHARED_MEMORY_BUFFER_SIZE));
-      ipc_main2sender_signal_semaphore = os_semaphore_alloc(0, 1, ipc_main2sender_signal_semaphore_name);
-      ipc_main2sender_lock_semaphore = os_semaphore_alloc(1, 1, ipc_main2sender_lock_semaphore_name);
+      SharedMemory ipc_main2sender_shared_memory = shared_memory_alloc(IPC_SHARED_MEMORY_BUFFER_SIZE, ipc_main2sender_shared_memory_name);
+      ipc_main2sender_shared_memory_base = (U8 *)shared_memory_view_open(ipc_main2sender_shared_memory, r1u64(0, IPC_SHARED_MEMORY_BUFFER_SIZE));
+      ipc_main2sender_signal_semaphore = semaphore_alloc(0, 1, ipc_main2sender_signal_semaphore_name);
+      ipc_main2sender_lock_semaphore = semaphore_alloc(1, 1, ipc_main2sender_lock_semaphore_name);
       
       //- rjf: got resources -> write message
       B32 wrote_message = 0;
       if(dst_pid != 0 &&
          ipc_sender2main_shared_memory_base != 0 &&
-         os_semaphore_take(ipc_sender2main_lock_semaphore, max_U64))
+         semaphore_take(ipc_sender2main_lock_semaphore, max_U64))
       {
         wrote_message = 1;
         IPCInfo *ipc_info = (IPCInfo *)ipc_sender2main_shared_memory_base;
@@ -773,24 +798,24 @@ entry_point(CmdLine *cmd_line)
         String8 msg = str8_list_join(scratch.arena, &parts, &join);
         ipc_info->msg_size = Min(buffer_max, msg.size);
         MemoryCopy(buffer, msg.str, ipc_info->msg_size);
-        os_semaphore_drop(ipc_sender2main_signal_semaphore);
-        os_semaphore_drop(ipc_sender2main_lock_semaphore);
+        semaphore_drop(ipc_sender2main_signal_semaphore);
+        semaphore_drop(ipc_sender2main_lock_semaphore);
       }
       
       //- rjf: wrote message -> wait for outputs, read outputs
       String8List outputs = {0};
       if(wrote_message &&
          ipc_main2sender_shared_memory_base != 0 &&
-         os_semaphore_take(ipc_main2sender_signal_semaphore, os_now_microseconds()+10000000))
+         semaphore_take(ipc_main2sender_signal_semaphore, now_time_us()+10000000))
       {
-        if(os_semaphore_take(ipc_main2sender_lock_semaphore, max_U64))
+        if(semaphore_take(ipc_main2sender_lock_semaphore, max_U64))
         {
           IPCInfo *ipc_info = (IPCInfo *)ipc_main2sender_shared_memory_base;
           String8 msg = str8((U8 *)(ipc_info+1), ipc_info->msg_size);
           msg.size = Min(msg.size, IPC_SHARED_MEMORY_BUFFER_SIZE - sizeof(IPCInfo));
           U8 split_char = 0;
           outputs = str8_split(scratch.arena, msg, &split_char, 1, 0);
-          os_semaphore_drop(ipc_main2sender_lock_semaphore);
+          semaphore_drop(ipc_main2sender_lock_semaphore);
         }
       }
       
@@ -814,7 +839,7 @@ entry_point(CmdLine *cmd_line)
     //- rjf: help message box
     case ExecMode_Help:
     {
-      os_graphical_message(0,
+      wm_graphical_message(0,
                            str8_lit("The RAD Debugger - Help"),
                            str8_lit("The following options may be used when starting the RAD Debugger from the command line:\n\n"
                                     "--user:<path>\n"
