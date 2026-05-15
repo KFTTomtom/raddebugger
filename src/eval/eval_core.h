@@ -974,6 +974,18 @@ struct E_TypeAutoHookCacheMap
   E_TypeAutoHookCacheSlot *slots;
 };
 
+//- kft: autohook IR tree cache (avoids recomputing sub-IRtrees for repeated autohook matches)
+
+typedef struct E_AutoHookIRCacheNode E_AutoHookIRCacheNode;
+struct E_AutoHookIRCacheNode
+{
+  E_AutoHookIRCacheNode *hash_next;
+  E_Expr *match_expr;
+  E_TypeKey parent_type_key;
+  U64 wildcard_signature;
+  E_IRTreeAndType irtree;
+};
+
 //- rjf: string ID cache
 
 typedef struct E_StringIDNode E_StringIDNode;
@@ -1115,6 +1127,10 @@ struct E_Cache
   //- rjf: [ir] ir caches
   E_UsedExprMap *used_expr_map;
   E_TypeAutoHookCacheMap *type_auto_hook_cache_map;
+  
+  //- kft: [ir] autohook IR tree cache
+  U64 autohook_ir_cache_slots_count;
+  E_AutoHookIRCacheNode **autohook_ir_cache_slots;
   
   //- rjf: [ir] string ID cache
   U64 string_id_gen;
@@ -1382,6 +1398,9 @@ struct E_PerfStats
   U64 autohook_tasks_pushed;
   U64 push_irtree_max_depth;
   U64 push_irtree_current_depth;
+  // kft: autohook IR tree cache hit/miss
+  U64 autohook_ir_cache_hit;
+  U64 autohook_ir_cache_miss;
   // kft: cross-frame cache reuse counter (frames where we skipped the wipe)
   U64 select_base_ctx_skipped;
   // kft: per-field invalidation reasons (count which field caused the wipe)

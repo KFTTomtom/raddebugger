@@ -898,6 +898,8 @@ e_select_base_ctx(E_BaseCtx *ctx)
   e_cache->string_id_map->id_slots = push_array(e_cache->arena, E_StringIDSlot, e_cache->string_id_map->id_slots_count);
   e_cache->string_id_map->hash_slots_count = 1024;
   e_cache->string_id_map->hash_slots = push_array(e_cache->arena, E_StringIDSlot, e_cache->string_id_map->hash_slots_count);
+  e_cache->autohook_ir_cache_slots_count = 512;
+  e_cache->autohook_ir_cache_slots = push_array(e_cache->arena, E_AutoHookIRCacheNode *, e_cache->autohook_ir_cache_slots_count);
 }
 
 internal void
@@ -1833,7 +1835,7 @@ e_perf_stats_dump_to_file(String8 file_path)
 {
   Temp scratch = scratch_begin(0, 0);
   String8 line = push_str8f(scratch.arena,
-    "frames=%llu (%llu reuse) wipe=[T:%llu D:%llu M:%llu S:%llu O:%llu] | bundle=%llu (%llu miss, %llu us) | irtree_total=%llu (%llu us, root=%llu, depth_max=%llu) | autohook_get=%llu (%llu hit) | autohook_push=%llu (%llu us, %llu tasks) | leaf=%llu (%llu us, %llu di_hit)\n",
+    "frames=%llu (%llu reuse) wipe=[T:%llu D:%llu M:%llu S:%llu O:%llu] | bundle=%llu (%llu miss, %llu us) | irtree_total=%llu (%llu us, root=%llu, depth_max=%llu) | autohook_get=%llu (%llu hit) | autohook_push=%llu (%llu us, %llu tasks) | ah_ir_cache=%llu hit/%llu miss | leaf=%llu (%llu us, %llu di_hit)\n",
     e_perf_stats.select_base_ctx_calls,
     e_perf_stats.select_base_ctx_skipped,
     e_perf_stats.wipe_thread_change,
@@ -1853,6 +1855,8 @@ e_perf_stats_dump_to_file(String8 file_path)
     e_perf_stats.push_autohook_calls,
     e_perf_stats.push_autohook_us,
     e_perf_stats.autohook_tasks_pushed,
+    e_perf_stats.autohook_ir_cache_hit,
+    e_perf_stats.autohook_ir_cache_miss,
     e_perf_stats.leaf_type_key_calls,
     e_perf_stats.leaf_type_key_us,
     e_perf_stats.di_match_hits);

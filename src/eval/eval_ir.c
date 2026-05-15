@@ -645,6 +645,37 @@ e_push_irtree_and_type_from_expr(Arena *arena, E_IRTreeAndType *root_parent, E_I
     //  while allowing the same hook expression to evaluate for different types
     e_expr_poison(expr, t->poison_type_key);
     
+    //- kft: autohook IR cache — check before evaluating
+    U64 ah_cache_hash = 0;
+    U64 ah_wildcard_sig = 0;
+    if(t->overridden != 0 && e_cache->autohook_ir_cache_slots_count > 0)
+    {
+      for(E_AutoHookWildcardInst *wi = t->first_wildcard_inst; wi != 0; wi = wi->next)
+      {
+        U64 ptr_val = (U64)(uintptr_t)wi->inst_expr;
+        ah_wildcard_sig = e_hash_from_string(ah_wildcard_sig, str8_struct(&ptr_val));
+        ah_wildcard_sig = e_hash_from_string(ah_wildcard_sig, str8_struct(&wi->type_key));
+      }
+      U64 expr_ptr = (U64)(uintptr_t)expr;
+      ah_cache_hash = 5381;
+      ah_cache_hash = e_hash_from_string(ah_cache_hash, str8_struct(&expr_ptr));
+      ah_cache_hash = e_hash_from_string(ah_cache_hash, str8_struct(&t->poison_type_key));
+      ah_cache_hash = e_hash_from_string(ah_cache_hash, str8_struct(&ah_wildcard_sig));
+      U64 ah_slot_idx = ah_cache_hash % e_cache->autohook_ir_cache_slots_count;
+      for(E_AutoHookIRCacheNode *n = e_cache->autohook_ir_cache_slots[ah_slot_idx]; n != 0; n = n->hash_next)
+      {
+        if(n->match_expr == expr &&
+           e_type_key_match(n->parent_type_key, t->poison_type_key) &&
+           n->wildcard_signature == ah_wildcard_sig)
+        {
+          result = n->irtree;
+          e_perf_stats.autohook_ir_cache_hit += 1;
+          goto autohook_ir_cache_hit;
+        }
+      }
+      e_perf_stats.autohook_ir_cache_miss += 1;
+    }
+    
     //- rjf: push stack elements
     E_AutoHookWildcardInst *first_wildcard_inst_restore = e_cache->first_wildcard_inst;
     E_AutoHookWildcardInst *last_wildcard_inst_restore = e_cache->last_wildcard_inst;
@@ -2463,6 +2494,31 @@ e_push_irtree_and_type_from_expr(Arena *arena, E_IRTreeAndType *root_parent, E_I
       }
     }
     
+    //- kft: autohook IR cache — store on miss
+    //  Msgs are intentionally NOT cached. On a cache HIT the caller's
+    //  `result` shares node pointers with the cache entry; the next loop
+    //  iteration's e_msg_list_concat_in_place then mutates cached nodes'
+    //  `next` pointers, corrupting the linked list for future hits.
+    //  Msgs are transient diagnostics — safe to drop from the cache.
+    if(t->overridden != 0 && result.mode != E_Mode_Null && e_cache->autohook_ir_cache_slots_count > 0)
+    {
+      U64 ah_slot_idx = ah_cache_hash % e_cache->autohook_ir_cache_slots_count;
+      E_AutoHookIRCacheNode *node = push_array(e_cache->arena, E_AutoHookIRCacheNode, 1);
+      node->match_expr = expr;
+      node->parent_type_key = t->poison_type_key;
+      node->wildcard_signature = ah_wildcard_sig;
+      node->irtree = result;
+      node->irtree.msgs = (E_MsgList){0};
+      node->hash_next = e_cache->autohook_ir_cache_slots[ah_slot_idx];
+      e_cache->autohook_ir_cache_slots[ah_slot_idx] = node;
+    }
+    
+    //- rjf: restore stack elements
+    e_cache->first_wildcard_inst = first_wildcard_inst_restore;
+    e_cache->last_wildcard_inst = last_wildcard_inst_restore;
+    
+    autohook_ir_cache_hit:;
+    
     //- rjf: equip previous task's irtree
     if(parent != 0 && parent->root != &e_irnode_nil)
     {
@@ -2496,10 +2552,6 @@ e_push_irtree_and_type_from_expr(Arena *arena, E_IRTreeAndType *root_parent, E_I
         result.type_key = e_type_key_cons_meta_summary(result.type_key, t->summary_expr_string);
       }
     }
-    
-    //- rjf: restore stack elements
-    e_cache->first_wildcard_inst = first_wildcard_inst_restore;
-    e_cache->last_wildcard_inst = last_wildcard_inst_restore;
     
     //- rjf: find any auto hooks according to this generation's type
     if(!disallow_autohooks && result.mode != E_Mode_Null)
