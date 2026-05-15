@@ -747,7 +747,7 @@ d_trap_net_from_thread__step_out_scope(Arena *arena, D_Entity *thread)
 {
   D_TrapNet result = {0};
   {
-    U64 read_endt_us = now_time_us() + 1000000;
+    U64 read_endt_us = os_now_microseconds() + 1000000;
     Temp scratch = scratch_begin(&arena, 1);
     Access *access = access_open();
     D_EntityCtx *entity_ctx = &d_user_state->ctrl_entity_store->ctx;
