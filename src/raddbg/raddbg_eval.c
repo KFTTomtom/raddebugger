@@ -1036,15 +1036,18 @@ E_TYPE_ACCESS_FUNCTION_DEF(call_stack)
   if(expr->kind == E_ExprKind_ArrayIndex)
   {
     RD_CallStackAccel *accel = (RD_CallStackAccel *)lhs_irtree->user_data;
-    E_Value rhs_value = e_value_from_expr(expr->first->next);
-    D_CallStack *call_stack = &accel->call_stack;
-    if(0 <= rhs_value.u64 && rhs_value.u64 < call_stack->frames_count)
+    if(accel != 0)
     {
-      D_Entity *process = d_entity_from_handle(&d_user_state->ctrl_entity_store->ctx, accel->process);
-      D_CallStackFrame *f = &call_stack->frames[rhs_value.u64];
-      result.root = e_irtree_set_space(arena, rd_eval_space_from_ctrl_entity(process, D_EvalSpaceKind_Entity), e_irtree_const_u(arena, regs_rip_from_arch_block(accel->arch, f->regs)));
-      result.type_key = e_type_key_cons(.arch = process->arch, .kind = E_TypeKind_Ptr, .direct_key = e_type_key_basic(E_TypeKind_Function), .count = 1, .depth = f->inline_depth);
-      result.mode = E_Mode_Value;
+      E_Value rhs_value = e_value_from_expr(expr->first->next);
+      D_CallStack *call_stack = &accel->call_stack;
+      if(call_stack->frames != 0 && 0 <= rhs_value.u64 && rhs_value.u64 < call_stack->frames_count)
+      {
+        D_Entity *process = d_entity_from_handle(&d_user_state->ctrl_entity_store->ctx, accel->process);
+        D_CallStackFrame *f = &call_stack->frames[rhs_value.u64];
+        result.root = e_irtree_set_space(arena, rd_eval_space_from_ctrl_entity(process, D_EvalSpaceKind_Entity), e_irtree_const_u(arena, regs_rip_from_arch_block(accel->arch, f->regs)));
+        result.type_key = e_type_key_cons(.arch = process->arch, .kind = E_TypeKind_Ptr, .direct_key = e_type_key_basic(E_TypeKind_Function), .count = 1, .depth = f->inline_depth);
+        result.mode = E_Mode_Value;
+      }
     }
   }
   return result;
@@ -1055,7 +1058,10 @@ E_TYPE_EXPAND_INFO_FUNCTION_DEF(call_stack)
   RD_CallStackAccel *accel = (RD_CallStackAccel *)eval.irtree.user_data;
   E_TypeExpandInfo result = {0};
   result.user_data = accel;
-  result.expr_count = accel->call_stack.frames_count;
+  if(accel != 0)
+  {
+    result.expr_count = accel->call_stack.frames_count;
+  }
   return result;
 }
 
