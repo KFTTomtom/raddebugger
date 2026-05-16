@@ -54,7 +54,7 @@ nv_xml__skip_whitespace(NV_XMLParseCtx *ctx)
 internal B32
 nv_xml__match_prefix(NV_XMLParseCtx *ctx, char *prefix)
 {
-  U64 len = MemoryStrlen((U8 *)prefix);
+  U64 len = strlen(prefix);
   if((U64)(ctx->opl - ctx->ptr) >= len && MemoryCompare(ctx->ptr, prefix, len) == 0)
   {
     return 1;
@@ -65,7 +65,7 @@ nv_xml__match_prefix(NV_XMLParseCtx *ctx, char *prefix)
 internal void
 nv_xml__skip_prefix(NV_XMLParseCtx *ctx, char *prefix)
 {
-  U64 len = MemoryStrlen((U8 *)prefix);
+  U64 len = strlen(prefix);
   if((U64)(ctx->opl - ctx->ptr) >= len && MemoryCompare(ctx->ptr, prefix, len) == 0)
   {
     ctx->ptr += len;

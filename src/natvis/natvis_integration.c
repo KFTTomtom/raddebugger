@@ -161,24 +161,71 @@ nv_expr_is_safe_for_rad(String8 expr, String8 pattern, B32 log_rejection)
     {
       if(log_rejection)
       {
-        log_infof("natvis: SKIP \"%.*s\" — expr contains unsupported \"%.*s\"",
+        log_infof("natvis: SKIP \"%.*s\" — expr contains unsupported \"%.*s\"\n",
           str8_varg(pattern), str8_varg(unsafe_needles[i]));
       }
       return 0;
     }
   }
   
-  if(expr.size > 512)
-  {
-    if(log_rejection)
-    {
-      log_infof("natvis: SKIP \"%.*s\" — expr too long (%llu chars)",
-        str8_varg(pattern), expr.size);
-    }
-    return 0;
-  }
-  
   return 1;
+}
+
+////////////////////////////////
+//~ Static Constexpr Substitution
+//
+// RAD cannot resolve static constexpr values from PDB symbols.
+// We apply known substitutions before registering hooks.
+
+typedef struct NV_ConstexprSub NV_ConstexprSub;
+struct NV_ConstexprSub
+{
+  String8 token;
+  String8 value;
+};
+
+global read_only NV_ConstexprSub nv_constexpr_table[] =
+{
+  { str8_lit_comp("FNameDebugVisualizer::EntryStride"), str8_lit_comp("8")          },
+  { str8_lit_comp("FNameDebugVisualizer::OffsetBits"),  str8_lit_comp("16")         },
+  { str8_lit_comp("FNameDebugVisualizer::OffsetMask"),  str8_lit_comp("0xFFFF")     },
+  { str8_lit_comp("FNameDebugVisualizer::UnusedMask"),  str8_lit_comp("0x1FFF0000") },
+  { str8_lit_comp("FNameDebugVisualizer::MaxLength"),   str8_lit_comp("1024")       },
+};
+
+internal String8
+nv_apply_constexpr_subs(Arena *arena, String8 expr)
+{
+  if(expr.size == 0) { return expr; }
+  B32 changed = 0;
+  String8 result = expr;
+  for(U64 i = 0; i < ArrayCount(nv_constexpr_table); i += 1)
+  {
+    U64 pos = str8_find_needle(result, 0, nv_constexpr_table[i].token, 0);
+    if(pos < result.size)
+    {
+      String8List parts = {0};
+      U64 cursor = 0;
+      while(cursor < result.size)
+      {
+        U64 found = str8_find_needle(result, cursor, nv_constexpr_table[i].token, 0);
+        if(found < result.size)
+        {
+          str8_list_push(arena, &parts, str8(result.str + cursor, found - cursor));
+          str8_list_push(arena, &parts, nv_constexpr_table[i].value);
+          cursor = found + nv_constexpr_table[i].token.size;
+        }
+        else
+        {
+          str8_list_push(arena, &parts, str8(result.str + cursor, result.size - cursor));
+          break;
+        }
+      }
+      result = str8_list_join(arena, &parts, 0);
+      changed = 1;
+    }
+  }
+  return result;
 }
 
 ////////////////////////////////
@@ -249,9 +296,11 @@ nv_rebuild_cached_hooks(NV_State *state)
       
       String8 tag_expr = nv_type_view_expr_from_typedef(work, td, template_args, template_count);
       tag_expr = nv_inline_intrinsic_calls(work, tag_expr, td->first_intrinsic, nv_file->first_intrinsic);
+      tag_expr = nv_apply_constexpr_subs(work, tag_expr);
       
       String8 summary_expr = nv_summary_expr_from_typedef(work, td, template_args, template_count);
       summary_expr = nv_inline_intrinsic_calls(work, summary_expr, td->first_intrinsic, nv_file->first_intrinsic);
+      summary_expr = nv_apply_constexpr_subs(work, summary_expr);
       
       if(tag_expr.size > 0 && nv_expr_is_safe_for_rad(tag_expr, pattern, 1))
       {
@@ -265,6 +314,9 @@ nv_rebuild_cached_hooks(NV_State *state)
         hook->summary_expr = summary_expr.size > 0 ? str8_copy(state->arena, summary_expr) : str8_zero();
         SLLQueuePush(state->first_cached_hook, state->last_cached_hook, hook);
         state->cached_hook_count += 1;
+        
+        log_infof("[Natvis Parse] \"%.*s\" : %.*s\n",
+          str8_varg(pattern), str8_varg(tag_expr));
       }
       
       for(String8Node *alt = td->alternative_names.first; alt != 0; alt = alt->next)
@@ -306,6 +358,9 @@ nv_rebuild_cached_hooks(NV_State *state)
         hook->summary_expr = summary_expr.size > 0 ? str8_copy(state->arena, summary_expr) : str8_zero();
         SLLQueuePush(state->first_cached_hook, state->last_cached_hook, hook);
         state->cached_hook_count += 1;
+        
+        log_infof("[Natvis Parse] \"%.*s\" : %.*s\n",
+          str8_varg(alt_pattern), str8_varg(tag_expr));
       }
     }
   }
@@ -328,7 +383,7 @@ nv_register_auto_hooks(NV_State *state, Arena *arena, E_AutoHookMap *auto_hook_m
   // fast replay: insert pre-computed hooks into the per-frame auto_hook_map
   if(!state->hooks_logged)
   {
-    log_infof("natvis: replaying %llu cached hooks", state->cached_hook_count);
+    log_infof("natvis: replaying %llu cached hooks\n", state->cached_hook_count);
   }
   for(NV_CachedHook *h = state->first_cached_hook; h != 0; h = h->next)
   {
@@ -336,7 +391,7 @@ nv_register_auto_hooks(NV_State *state, Arena *arena, E_AutoHookMap *auto_hook_m
     if(h->tag_expr.size == 0 || h->tag_expr.str == 0) { continue; }
     if(!state->hooks_logged)
     {
-      log_infof("  hook: pattern=\"%.*s\" tag=\"%.*s\"",
+      log_infof("  hook: pattern=\"%.*s\" tag=\"%.*s\"\n",
         (int)(h->pattern.size > 120 ? 120 : h->pattern.size), h->pattern.str,
         (int)(h->tag_expr.size > 120 ? 120 : h->tag_expr.size), h->tag_expr.str);
     }

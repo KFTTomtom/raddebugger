@@ -10116,6 +10116,7 @@ rd_init(CmdLine *cmdln)
   rd_state->num_frames_requested = 2;
   rd_state->seconds_until_autosave = 0.5f;
   rd_state->eval_cache = e_cache_alloc();
+  rd_state->natvis_state = nv_state_alloc();
   for(U64 idx = 0; idx < ArrayCount(rd_state->cmds_arenas); idx += 1)
   {
     rd_state->cmds_arenas[idx] = arena_alloc();
@@ -12019,7 +12020,11 @@ rd_frame(void)
         { 0, 1, str8_lit_comp("TSharedRef<?>"),              str8_lit_comp("Object") },
         { 0, 1, str8_lit_comp("TRefCountPtr<?>"),            str8_lit_comp("Reference") },
         { 0, 1, str8_lit_comp("FNameEntry"),                 str8_lit_comp("AnsiName, Header.Len") },
-        { 0, 1, str8_lit_comp("FNameEntryId"),               str8_lit_comp("*(cast(FNameEntry *)(&GNameBlocksDebug[Value >> FNameDebugVisualizer::OffsetBits][FNameDebugVisualizer::EntryStride * (Value & FNameDebugVisualizer::OffsetMask)]))") },
+        // UE 5.7 FNameDebugVisualizer constants inlined — static constexpr members
+        // are not emitted as linker symbols, so di_match_from_string cannot resolve them.
+        // OffsetBits=16, OffsetMask=0xFFFF, EntryStride=8 (editor, UE_FNAME_ENTRY_ALIGNMENT=8).
+        // Non-editor builds use EntryStride=2 (natural alignof(FNameEntry)).
+        { 0, 1, str8_lit_comp("FNameEntryId"),               str8_lit_comp("*(cast(FNameEntry *)(&GNameBlocksDebug[Value >> 16][8 * (Value & 0xFFFF)]))") },
         { 0, 1, str8_lit_comp("TObjectPtr<?>"),              str8_lit_comp("DebugPtr") },
         { 0, 1, str8_lit_comp("FColor"),                     str8_lit_comp("hex(color(Bits))") },
       };
@@ -12066,6 +12071,59 @@ rd_frame(void)
     }
     
     ////////////////////////////
+    //- rjf: load .natvis files and register auto-hooks from NatVis
+    //
+    if(rd_state->use_natvis && rd_state->natvis_state != 0)
+    {
+      for(U64 module_idx = 0; module_idx < all_modules.count; module_idx += 1)
+      {
+        D_Entity *m = all_modules.v[module_idx];
+        if(m != 0 && m->string.size > 0)
+        {
+          String8 dir = str8_chop_last_slash(m->string);
+          if(dir.size > 0)
+          {
+            nv_state_load_directory(rd_state->natvis_state, dir);
+            
+            // scan Engine\Extras\VisualStudioDebugging\ when a UE module is detected
+            if(str8_find_needle(m->string, 0, str8_lit("Engine\\Binaries"), StringMatchFlag_CaseInsensitive|StringMatchFlag_SlashInsensitive) < m->string.size ||
+               str8_find_needle(m->string, 0, str8_lit("UnrealEditor"), StringMatchFlag_CaseInsensitive) < m->string.size)
+            {
+              String8 engine_root = dir;
+              for(U64 attempt = 0; attempt < 4; attempt += 1)
+              {
+                String8 candidate = push_str8f(scratch.arena, "%S/Extras/VisualStudioDebugging", engine_root);
+                if(os_folder_path_exists(candidate))
+                {
+                  nv_state_load_directory(rd_state->natvis_state, candidate);
+                  break;
+                }
+                engine_root = str8_chop_last_slash(engine_root);
+                if(engine_root.size == 0) { break; }
+              }
+            }
+          }
+        }
+      }
+      
+      // load from user-configured natvis_path entries
+      {
+        CFG_NodePtrList natvis_paths = cfg_node_top_level_list_from_string(scratch.arena, str8_lit("natvis_path"));
+        for(CFG_NodePtrNode *n = natvis_paths.first; n != 0; n = n->next)
+        {
+          String8 path = n->v->first->string;
+          if(path.size > 0)
+          {
+            nv_state_load_directory(rd_state->natvis_state, path);
+          }
+        }
+      }
+      
+      nv_check_reload(rd_state->natvis_state);
+      nv_register_auto_hooks(rd_state->natvis_state, scratch.arena, auto_hook_map);
+    }
+    
+    ////////////////////////////
     //- rjf: build IR evaluation context
     //
     E_IRCtx *ir_ctx = push_array(scratch.arena, E_IRCtx, 1);
@@ -12106,6 +12164,7 @@ rd_frame(void)
     rd_state->alt_menu_bar_enabled = rd_setting_b32_from_name(str8_lit("focus_menu_bar_with_alt"));
     rd_state->use_default_stl_type_views = rd_setting_b32_from_name(str8_lit("use_default_stl_type_views"));
     rd_state->use_default_ue_type_views = rd_setting_b32_from_name(str8_lit("use_default_ue_type_views"));
+    rd_state->use_natvis = rd_setting_b32_from_name(str8_lit("use_natvis"));
     rd_state->eval_viz_base_string_flags = 0;
     if(rd_setting_b32_from_name(str8_lit("display_pointer_addresses_before_contents")))
     {

@@ -206,11 +206,26 @@ nv_inline_intrinsic_calls(Arena *arena, String8 expr, NV_Intrinsic *type_intrins
   if(type_intrinsics == 0 && global_intrinsics == 0) { return expr; }
   
   String8 result = expr;
+  U64 consecutive_growth = 0;
   for(U64 depth = 0; depth < NV_INTRINSIC_MAX_RECURSION; depth += 1)
   {
     B32 did_inline = 0;
+    U64 prev_size = result.size;
     result = nv_inline_intrinsic_calls_once(arena, result, type_intrinsics, global_intrinsics, &did_inline);
     if(!did_inline) { break; }
+    // kft: detect self-referencing intrinsics whose body contains the same
+    // intrinsic call (e.g. TArray _GetData → AllocatorInstance._GetData()).
+    // Each pass grows the expression; legitimate inlining converges within
+    // 1-2 passes. 3+ consecutive growth passes = self-referencing, bail out.
+    if(result.size > prev_size) { consecutive_growth += 1; }
+    else                        { consecutive_growth = 0; }
+    if(consecutive_growth >= 3)
+    {
+      log_infof("natvis: WARN self-referencing intrinsic detected at depth %llu (%llu bytes), discarding\n",
+        depth, result.size);
+      result = str8_zero();
+      break;
+    }
   }
   return result;
 }
@@ -223,7 +238,6 @@ nv_translate_expr(Arena *arena, String8 natvis_expr, String8 *template_args, U64
 {
   if(natvis_expr.size == 0) { return natvis_expr; }
   
-  Temp scratch = temp_begin(arena);
   String8List parts = {0};
   U64 i = 0;
   
@@ -320,7 +334,6 @@ nv_translate_expr(Arena *arena, String8 natvis_expr, String8 *template_args, U64
   }
   
   String8 result = str8_list_join(arena, &parts, 0);
-  temp_end(scratch);
   return result;
 }
 

@@ -404,7 +404,11 @@ struct RD_State
   B32 alt_menu_bar_enabled;
   B32 use_default_stl_type_views;
   B32 use_default_ue_type_views;
+  B32 use_natvis;
   EV_StringFlags eval_viz_base_string_flags;
+  
+  // rjf: natvis state
+  NV_State *natvis_state;
   
   // rjf: animation rates
   F32 catchall_animation_rate;
