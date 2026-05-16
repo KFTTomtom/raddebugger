@@ -4,6 +4,11 @@
 ////////////////////////////////
 //~ rjf: IR-ization Functions
 
+// kft: max chained auto-hook expansions per expr (prevents runaway recursion / stack overflow)
+#ifndef E_AUTOHOOK_CHAIN_DEPTH_MAX
+#define E_AUTOHOOK_CHAIN_DEPTH_MAX 8
+#endif
+
 //- rjf: op list functions
 
 internal void
@@ -363,6 +368,60 @@ e_expr_unpoison(E_Expr *expr, E_TypeKey type_key)
   }
 }
 
+////////////////////////////////
+//~ kft: cross-module member fallback cache
+
+internal U64
+e_cross_module_type_cache_bucket_hash(U64 type_name_hash, U64 member_name_hash, E_TypeKind type_kind)
+{
+  U64 h = type_name_hash;
+  h ^= member_name_hash + 0x9e3779b97f4a7c15llu + (h<<6) + (h>>2);
+  h ^= (U64)type_kind + 0x9e3779b97f4a7c15llu + (h<<6) + (h>>2);
+  return h;
+}
+
+internal E_CrossModuleTypeCacheNode *
+e_cross_module_type_cache_lookup(U64 type_name_hash, U64 member_name_hash, E_TypeKind type_kind)
+{
+  E_CrossModuleTypeCacheNode *result = 0;
+  if(e_cache->cross_module_type_cache_slots != 0)
+  {
+    U64 slot_idx = e_cross_module_type_cache_bucket_hash(type_name_hash, member_name_hash, type_kind)%e_cache->cross_module_type_cache_slots_count;
+    for(E_CrossModuleTypeCacheNode *n = e_cache->cross_module_type_cache_slots[slot_idx].first;
+        n != 0;
+        n = n->next)
+    {
+      if(n->type_name_hash == type_name_hash &&
+         n->member_name_hash == member_name_hash &&
+         n->type_kind == type_kind)
+      {
+        result = n;
+        break;
+      }
+    }
+  }
+  return result;
+}
+
+internal void
+e_cross_module_type_cache_insert(U64 type_name_hash, U64 member_name_hash, E_TypeKind type_kind, E_TypeKey resolved_type_key)
+{
+  if(e_cache->cross_module_type_cache_slots == 0)
+  {
+    return;
+  }
+  U64 slot_idx = e_cross_module_type_cache_bucket_hash(type_name_hash, member_name_hash, type_kind)%e_cache->cross_module_type_cache_slots_count;
+  E_CrossModuleTypeCacheNode *node = push_array_no_zero(e_cache->arena, E_CrossModuleTypeCacheNode, 1);
+  node->next = 0;
+  node->type_name_hash = type_name_hash;
+  node->member_name_hash = member_name_hash;
+  node->type_kind = type_kind;
+  node->resolved_type_key = resolved_type_key;
+  SLLQueuePush(e_cache->cross_module_type_cache_slots[slot_idx].first,
+               e_cache->cross_module_type_cache_slots[slot_idx].last,
+               node);
+}
+
 //- rjf: top-level irtree/type extraction
 
 E_TYPE_ACCESS_FUNCTION_DEF(default)
@@ -411,7 +470,104 @@ E_TYPE_ACCESS_FUNCTION_DEF(default)
           r_type = match.type_key;
           r_value = match.off;
         }
-        if(match.kind == E_MemberKind_Null)
+        
+        // kft(diag): log primary member lookup result
+        {
+          E_Type *diag_type = e_type_from_key(check_type_key);
+          E_MemberArray diag_members = e_type_data_members_from_key__cached(check_type_key);
+          log_infof("[MEMBER-LOOKUP] type=\"%.*s\" (key=%08x:%08x:%08x, kind=%d, byte_size=%llu, members_count=%llu) looking_for=\"%.*s\" -> found=%d\n",
+                    str8_varg(diag_type->name),
+                    check_type_key.u32[0], check_type_key.u32[1], check_type_key.u32[2],
+                    (int)diag_type->kind,
+                    (unsigned long long)diag_type->byte_size,
+                    (unsigned long long)diag_members.count,
+                    str8_varg(exprr->string),
+                    (int)r_found);
+        }
+        
+        // kft: cross-module fallback — when the member is not found on the primary
+        // type key, search all loaded debug-info modules for another type of the
+        // same name/kind and retry the member lookup there. This covers incomplete
+        // types (forward declaration with 0 data members) and cases where the
+        // referring module's definition omits a field present in another module.
+        // The expand visual may succeed because it obtains the type key from a
+        // different resolution path. A debugger must expose all members regardless
+        // of C++ access specifiers (private, protected, public) — these are
+        // compile-time concepts with no runtime meaning. The RDI format intentionally
+        // does not store access levels.
+        if(match.kind == E_MemberKind_Null &&
+           (check_type_kind == E_TypeKind_Struct || check_type_kind == E_TypeKind_Class || check_type_kind == E_TypeKind_Union))
+        {
+          E_Type *primary_type = e_type_from_key(check_type_key);
+          if(primary_type->name.size != 0)
+          {
+            U64 cm_type_name_hash = e_hash_from_string(5381, primary_type->name);
+            U64 cm_member_name_hash = e_hash_from_string(5381, exprr->string);
+            E_CrossModuleTypeCacheNode *cm_cached = e_cross_module_type_cache_lookup(cm_type_name_hash, cm_member_name_hash, check_type_kind);
+            if(cm_cached != 0)
+            {
+              //- cache hit: skip cross-module scan and fallback logs
+              if(!e_type_key_match(cm_cached->resolved_type_key, e_type_key_zero()))
+              {
+                match = e_type_member_from_key_name__cached(cm_cached->resolved_type_key, exprr->string);
+                if(match.kind != E_MemberKind_Null)
+                {
+                  member = match;
+                  r_found = 1;
+                  r_type = match.type_key;
+                  r_value = match.off;
+                }
+              }
+            }
+            else
+            {
+              //- cache miss: full cross-module scan (expensive); record outcome for later frames
+              B32 cm_found = 0;
+              E_TypeKey cm_resolved_key = e_type_key_zero();
+              for EachIndex(fb_idx, e_base_ctx->dbg_infos_count)
+              {
+                E_DbgInfo *fb_dbg = &e_base_ctx->dbg_infos[fb_idx];
+                if(fb_dbg->rdi == 0 || fb_dbg->rdi == &rdi_parsed_nil) { continue; }
+                RDI_NameMap *nm = rdi_element_from_name_idx(fb_dbg->rdi, NameMaps, RDI_NameMapKind_Types);
+                RDI_ParsedNameMap pnm = {0};
+                rdi_parsed_from_name_map(fb_dbg->rdi, nm, &pnm);
+                RDI_NameMapNode *map_node = rdi_name_map_lookup(fb_dbg->rdi, &pnm, primary_type->name.str, primary_type->name.size);
+                U32 fb_count = 0;
+                U32 *fb_matches = rdi_matches_from_map_node(fb_dbg->rdi, map_node, &fb_count);
+                for(U32 mi = 0; mi < fb_count; mi += 1)
+                {
+                  U32 type_idx = fb_matches[mi];
+                  RDI_TypeNode *type_node = rdi_element_from_name_idx(fb_dbg->rdi, TypeNodes, type_idx);
+                  E_TypeKind fb_kind = e_type_kind_from_rdi(type_node->kind);
+                  if(fb_kind != check_type_kind) { continue; }
+                  E_TypeKey fb_key = e_type_key_ext(fb_kind, type_idx, (U32)fb_idx+1);
+                  E_MemberArray fb_members = e_type_data_members_from_key__cached(fb_key);
+                  if(fb_members.count == 0) { continue; }
+                  match = e_type_member_from_key_name__cached(fb_key, exprr->string);
+                  if(match.kind != E_MemberKind_Null)
+                  {
+                    member = match;
+                    r_found = 1;
+                    r_type = match.type_key;
+                    r_value = match.off;
+                    cm_found = 1;
+                    cm_resolved_key = fb_key;
+                    break;
+                  }
+                }
+                if(r_found) { break; }
+              }
+              log_infof("[MEMBER-LOOKUP] cross-module fallback cache miss type=\"%.*s\" member=\"%.*s\" -> %s\n",
+                        str8_varg(primary_type->name),
+                        str8_varg(exprr->string),
+                        cm_found ? "found" : "not found");
+              e_cross_module_type_cache_insert(cm_type_name_hash, cm_member_name_hash, check_type_kind,
+                                               cm_found ? cm_resolved_key : e_type_key_zero());
+            }
+          }
+        }
+        
+        if(match.kind == E_MemberKind_Null && !r_found)
         {
           E_Type *type = e_type_from_key(check_type_key);
           String8 lookup_string = exprr->string;
@@ -632,6 +788,7 @@ e_push_irtree_and_type_from_expr(Arena *arena, E_IRTreeAndType *root_parent, E_I
     E_AutoHookWildcardInst *last_wildcard_inst;
     E_IRTreeAndType *overridden;
     String8 summary_expr_string;
+    U32 autohook_depth;
   };
   Task start_task = {0, root_expr};
   Task *first_task = &start_task;
@@ -1952,6 +2109,34 @@ e_push_irtree_and_type_from_expr(Arena *arena, E_IRTreeAndType *root_parent, E_I
                 // rjf: find match
                 DI_Match match = di_match_from_string(string, match_disambiguating_idx, e_base_ctx->primary_dbg_info->dbgi_key, 0);
                 
+                // kft: synchronous fallback — di_match_from_string uses endt_us=0
+                // so the artifact cache returns empty until the async search
+                // completes. For types used in cast() expressions (e.g. FName in
+                // NatVis), this causes persistent "could not be found" errors.
+                // Fall back to a direct name-map lookup through the RDIs already
+                // present in the eval context.
+                if(match.idx == 0 && match_disambiguating_idx == 0)
+                {
+                  for EachIndex(fb_idx, e_base_ctx->dbg_infos_count)
+                  {
+                    E_DbgInfo *fb_dbg = &e_base_ctx->dbg_infos[fb_idx];
+                    if(fb_dbg->rdi == 0 || fb_dbg->rdi == &rdi_parsed_nil) { continue; }
+                    RDI_NameMap *nm = rdi_element_from_name_idx(fb_dbg->rdi, NameMaps, RDI_NameMapKind_Types);
+                    RDI_ParsedNameMap pnm = {0};
+                    rdi_parsed_from_name_map(fb_dbg->rdi, nm, &pnm);
+                    RDI_NameMapNode *map_node = rdi_name_map_lookup(fb_dbg->rdi, &pnm, string.str, string.size);
+                    U32 fb_count = 0;
+                    U32 *fb_matches = rdi_matches_from_map_node(fb_dbg->rdi, map_node, &fb_count);
+                    if(fb_count > 0)
+                    {
+                      match.key = fb_dbg->dbgi_key;
+                      match.section_kind = RDI_SectionKind_TypeNodes;
+                      match.idx = fb_matches[fb_count - 1];
+                      break;
+                    }
+                  }
+                }
+                
 #if 0
                 //~ TODO(rjf): vvvvv this used to be used for namespaceifying partially-qualified strings.
                 // now, the debugger just stores partially-qualified strings, so we instead need to do the
@@ -1999,11 +2184,16 @@ e_push_irtree_and_type_from_expr(Arena *arena, E_IRTreeAndType *root_parent, E_I
                 RDI_Parsed *rdi = di_rdi_from_key(access, match.key, 0, 0);
                 
                 // rjf: find dbg info from rdi
+                // kft: also match by dbgi_key when the RDI pointer in the eval
+                // context is stale (rdi_parsed_nil) but the actual RDI has been
+                // loaded since context-build time. The rdi from di_rdi_from_key
+                // above is the authoritative pointer for subsequent type access.
                 E_DbgInfo *dbg_info = &e_dbg_info_nil;
                 U32 dbg_info_num = 0;
                 for EachIndex(idx, e_base_ctx->dbg_infos_count)
                 {
-                  if(e_base_ctx->dbg_infos[idx].rdi == rdi)
+                  if(e_base_ctx->dbg_infos[idx].rdi == rdi ||
+                     (rdi != &rdi_parsed_nil && di_key_match(e_base_ctx->dbg_infos[idx].dbgi_key, match.key)))
                   {
                     dbg_info = &e_base_ctx->dbg_infos[idx];
                     dbg_info_num = idx+1;
@@ -2495,12 +2685,15 @@ e_push_irtree_and_type_from_expr(Arena *arena, E_IRTreeAndType *root_parent, E_I
     }
     
     //- kft: autohook IR cache — store on miss
-    //  Msgs are intentionally NOT cached. On a cache HIT the caller's
-    //  `result` shares node pointers with the cache entry; the next loop
-    //  iteration's e_msg_list_concat_in_place then mutates cached nodes'
-    //  `next` pointers, corrupting the linked list for future hits.
-    //  Msgs are transient diagnostics — safe to drop from the cache.
-    if(t->overridden != 0 && result.mode != E_Mode_Null && e_cache->autohook_ir_cache_slots_count > 0)
+    //  Msgs and prev are intentionally NOT cached:
+    //  - Msgs: on a cache HIT the caller's `result` shares node pointers with
+    //    the cache entry; the next loop iteration's e_msg_list_concat_in_place
+    //    then mutates cached nodes' `next` pointers, corrupting the linked list.
+    //  - Prev: the prev chain points to arena-local E_IRTreeAndType nodes from
+    //    the equip-prev-chain step. Caching these pointers would create dangling
+    //    references when the cache outlives the call context. The prev chain is
+    //    rebuilt after the cache-hit label for every result (cached or fresh).
+    if(t->overridden != 0 && result.root != &e_irnode_nil && result.mode != E_Mode_Null && e_cache->autohook_ir_cache_slots_count > 0)
     {
       U64 ah_slot_idx = ah_cache_hash % e_cache->autohook_ir_cache_slots_count;
       E_AutoHookIRCacheNode *node = push_array(e_cache->arena, E_AutoHookIRCacheNode, 1);
@@ -2509,6 +2702,7 @@ e_push_irtree_and_type_from_expr(Arena *arena, E_IRTreeAndType *root_parent, E_I
       node->wildcard_signature = ah_wildcard_sig;
       node->irtree = result;
       node->irtree.msgs = (E_MsgList){0};
+      node->irtree.prev = 0;
       node->hash_next = e_cache->autohook_ir_cache_slots[ah_slot_idx];
       e_cache->autohook_ir_cache_slots[ah_slot_idx] = node;
     }
@@ -2528,7 +2722,8 @@ e_push_irtree_and_type_from_expr(Arena *arena, E_IRTreeAndType *root_parent, E_I
       E_IRTreeAndType *last_chain = 0;
       if(result.prev)
       {
-        for(E_IRTreeAndType *p = result.prev; p != 0; p = p->prev)
+        U64 chain_limit = 64; // kft: safety cap — prevent runaway iteration on corrupt chains
+        for(E_IRTreeAndType *p = result.prev; p != 0 && chain_limit > 0; p = p->prev, chain_limit -= 1)
         {
           E_IRTreeAndType *p_copy = push_array(arena, E_IRTreeAndType, 1);
           MemoryCopyStruct(p_copy, p);
@@ -2562,6 +2757,14 @@ e_push_irtree_and_type_from_expr(Arena *arena, E_IRTreeAndType *root_parent, E_I
         B32 e_is_poisoned = e_expr_is_poisoned(match->expr, result.type_key);
         if(!e_is_poisoned)
         {
+          U32 next_autohook_depth = t->autohook_depth + 1;
+          if(next_autohook_depth >= E_AUTOHOOK_CHAIN_DEPTH_MAX)
+          {
+            String8 type_str = e_type_string_from_key(scratch.arena, result.type_key);
+            log_infof("[AUTOHOOK] depth limit reached (%d) for type \"%.*s\"\n",
+                      E_AUTOHOOK_CHAIN_DEPTH_MAX, str8_varg(type_str));
+            goto end_autohook_find;
+          }
           Task *task = push_array(scratch.arena, Task, 1);
           SLLQueuePush(first_task, last_task, task);
           task->expr = match->expr;
@@ -2571,6 +2774,7 @@ e_push_irtree_and_type_from_expr(Arena *arena, E_IRTreeAndType *root_parent, E_I
           task->overridden = push_array(scratch.arena, E_IRTreeAndType, 1);
           task->overridden[0] = result;
           task->summary_expr_string = match->summary_expr_string;
+          task->autohook_depth = next_autohook_depth;
           // kft: count autohook chain length to characterize the lag hypothesis
           e_perf_stats.autohook_tasks_pushed += 1;
           goto end_autohook_find;

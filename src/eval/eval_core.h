@@ -925,6 +925,25 @@ struct E_EnumValCacheSlot
   E_EnumValCacheNode *last;
 };
 
+//- kft: cross-module member fallback cache (see e_type_access__default)
+
+typedef struct E_CrossModuleTypeCacheNode E_CrossModuleTypeCacheNode;
+struct E_CrossModuleTypeCacheNode
+{
+  E_CrossModuleTypeCacheNode *next;
+  U64 type_name_hash;
+  U64 member_name_hash;
+  E_TypeKind type_kind;
+  E_TypeKey resolved_type_key; //- zero after search => member not found in any module
+};
+
+typedef struct E_CrossModuleTypeCacheSlot E_CrossModuleTypeCacheSlot;
+struct E_CrossModuleTypeCacheSlot
+{
+  E_CrossModuleTypeCacheNode *first;
+  E_CrossModuleTypeCacheNode *last;
+};
+
 //- rjf: used expression map
 
 typedef struct E_UsedExprNode E_UsedExprNode;
@@ -1135,6 +1154,10 @@ struct E_Cache
   //- rjf: [ir] string ID cache
   U64 string_id_gen;
   E_StringIDMap *string_id_map;
+  
+  //- kft: cross-module member fallback cache (cleared with eval cache wipe)
+  U64 cross_module_type_cache_slots_count;
+  E_CrossModuleTypeCacheSlot *cross_module_type_cache_slots;
   
   // kft: cross-frame cache persistence fingerprint - if the eval base context
   // is byte-for-byte identical to the previous frame, we can skip the entire

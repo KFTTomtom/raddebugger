@@ -645,6 +645,34 @@ e_leaf_type_key_from_name(String8 name)
       }
       access_close(access);
     }
+    
+    // kft: synchronous fallback — di_match_from_string uses endt_us=0 so the
+    // artifact cache returns immediately. If the async search hasn't completed
+    // yet (or the matched module's RDI pointer didn't correlate with the eval
+    // context), fall back to a direct name-map lookup through the RDIs already
+    // loaded in the eval context. This resolves types like FName that exist in
+    // loaded modules but whose artifact-cache entry hasn't been populated yet.
+    if(e_type_key_match(e_type_key_zero(), key))
+    {
+      for EachIndex(fb_idx, e_base_ctx->dbg_infos_count)
+      {
+        E_DbgInfo *fb_dbg = &e_base_ctx->dbg_infos[fb_idx];
+        if(fb_dbg->rdi == 0 || fb_dbg->rdi == &rdi_parsed_nil) { continue; }
+        RDI_NameMap *nm = rdi_element_from_name_idx(fb_dbg->rdi, NameMaps, RDI_NameMapKind_Types);
+        RDI_ParsedNameMap pnm = {0};
+        rdi_parsed_from_name_map(fb_dbg->rdi, nm, &pnm);
+        RDI_NameMapNode *map_node = rdi_name_map_lookup(fb_dbg->rdi, &pnm, name.str, name.size);
+        U32 fb_count = 0;
+        U32 *fb_matches = rdi_matches_from_map_node(fb_dbg->rdi, map_node, &fb_count);
+        if(fb_count > 0)
+        {
+          U32 type_idx = fb_matches[fb_count - 1];
+          RDI_TypeNode *type_node = rdi_element_from_name_idx(fb_dbg->rdi, TypeNodes, type_idx);
+          key = e_type_key_ext(e_type_kind_from_rdi(type_node->kind), type_idx, (U32)fb_idx+1);
+          break;
+        }
+      }
+    }
   }
   e_perf_stats.leaf_type_key_us += os_now_microseconds() - _kft_perf_t0;
   return key;

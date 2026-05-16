@@ -1552,9 +1552,7 @@ d_tick(Arena *arena, D_TargetArray *targets, D_BreakpointArray *breakpoints, D_P
         event_n = event_n->next)
     {
       D_Event *event = &event_n->v;
-      log_infof("ctrl_event:\n{\n");
-      log_infof("kind: \"%S\"\n", d_string_from_event_kind(event->kind));
-      log_infof("entity_id: %u\n", event->entity_id);
+      log_infof("ctrl_event: { kind: \"%S\", entity_id: %u }\n", d_string_from_event_kind(event->kind), event->entity_id);
       switch(event->kind)
       {
         default:{}break;
@@ -1608,7 +1606,6 @@ d_tick(Arena *arena, D_TargetArray *targets, D_BreakpointArray *breakpoints, D_P
           mtx_push_op(d_user_state->output_log_key, op);
         }break;
       }
-      log_infof("}\n\n");
     }
     
     //- rjf: clear tls base cache

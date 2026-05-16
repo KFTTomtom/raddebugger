@@ -865,6 +865,8 @@ e_select_base_ctx(E_BaseCtx *ctx)
   e_cache->member_cache_slots = push_array(e_cache->arena, E_MemberCacheSlot, e_cache->member_cache_slots_count);
   e_cache->enum_val_cache_slots_count = 256;
   e_cache->enum_val_cache_slots = push_array(e_cache->arena, E_EnumValCacheSlot, e_cache->enum_val_cache_slots_count);
+  e_cache->cross_module_type_cache_slots_count = 256;
+  e_cache->cross_module_type_cache_slots = push_array(e_cache->arena, E_CrossModuleTypeCacheSlot, e_cache->cross_module_type_cache_slots_count);
   e_cache->type_cache_slots_count = 1024;
   e_cache->type_cache_slots = push_array(e_cache->arena, E_TypeCacheSlot, e_cache->type_cache_slots_count);
   e_cache->file_type_key = e_type_key_cons(.kind = E_TypeKind_Set,
