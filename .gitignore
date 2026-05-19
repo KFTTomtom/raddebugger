@@ -3,3 +3,9 @@
 *~
 .vs
 tags
+raddbg.vcxproj.user
+raddbg.vcxproj
+raddbg.sln
+crash/raddbg_crash_dump.dmp
+.cursor/RAD_EXTENSION_PROJECT.md
+.cursor/RAD_ARCHITECTURE.md
