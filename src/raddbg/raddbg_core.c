@@ -10326,6 +10326,7 @@ rd_init(CmdLine *cmdln)
   rd_state->num_frames_requested = 2;
   rd_state->seconds_until_autosave = 0.5f;
   rd_state->eval_cache = e_cache_alloc();
+  rd_natvis_init();
   for(U64 idx = 0; idx < ArrayCount(rd_state->cmds_arenas); idx += 1)
   {
     rd_state->cmds_arenas[idx] = arena_alloc();
@@ -12284,6 +12285,8 @@ rd_frame(void)
     ////////////////////////////
     //- rjf: build IR evaluation context
     //
+    rd_natvis_register_auto_hooks(scratch.arena, all_modules, auto_hook_map);
+
     E_IRCtx *ir_ctx = push_array(scratch.arena, E_IRCtx, 1);
     {
       E_IRCtx *ctx = ir_ctx;
@@ -12321,6 +12324,7 @@ rd_frame(void)
     rd_state->alt_menu_bar_enabled = rd_setting_b32_from_name(str8_lit("focus_menu_bar_with_alt"));
     rd_state->use_default_stl_type_views = rd_setting_b32_from_name(str8_lit("use_default_stl_type_views"));
     rd_state->use_default_ue_type_views = rd_setting_b32_from_name(str8_lit("use_default_ue_type_views"));
+    rd_natvis_update_settings();
     rd_state->eval_viz_base_string_flags = 0;
     if(rd_setting_b32_from_name(str8_lit("display_pointer_addresses_before_contents")))
     {
