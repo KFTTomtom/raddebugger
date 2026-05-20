@@ -330,14 +330,14 @@ e_irtree_resolve_to_value(Arena *arena, E_Mode from_mode, E_IRNode *tree, E_Type
 //- rjf: rule tag poison checking
 
 internal B32
-e_expr_is_poisoned(E_Expr *expr)
+e_expr_is_poisoned(E_Expr *expr, E_TypeKey type_key)
 {
   B32 tag_is_poisoned = 0;
   U64 hash = e_hash_from_string(5381, str8_struct(&expr));
   U64 slot_idx = hash%e_cache->used_expr_map->slots_count;
   for(E_UsedExprNode *n = e_cache->used_expr_map->slots[slot_idx].first; n != 0; n = n->next)
   {
-    if(n->expr == expr)
+    if(n->expr == expr && e_type_key_match(n->type_key, type_key))
     {
       tag_is_poisoned = 1;
       break;
@@ -347,23 +347,24 @@ e_expr_is_poisoned(E_Expr *expr)
 }
 
 internal void
-e_expr_poison(E_Expr *expr)
+e_expr_poison(E_Expr *expr, E_TypeKey type_key)
 {
   U64 hash = e_hash_from_string(5381, str8_struct(&expr));
   U64 slot_idx = hash%e_cache->used_expr_map->slots_count;
   E_UsedExprNode *n = push_array(e_cache->arena, E_UsedExprNode, 1);
   n->expr = expr;
+  n->type_key = type_key;
   DLLPushBack(e_cache->used_expr_map->slots[slot_idx].first, e_cache->used_expr_map->slots[slot_idx].last, n);
 }
 
 internal void
-e_expr_unpoison(E_Expr *expr)
+e_expr_unpoison(E_Expr *expr, E_TypeKey type_key)
 {
   U64 hash = e_hash_from_string(5381, str8_struct(&expr));
   U64 slot_idx = hash%e_cache->used_expr_map->slots_count;
   for(E_UsedExprNode *n = e_cache->used_expr_map->slots[slot_idx].first; n != 0; n = n->next)
   {
-    if(n->expr == expr)
+    if(n->expr == expr && e_type_key_match(n->type_key, type_key))
     {
       DLLRemove(e_cache->used_expr_map->slots[slot_idx].first, e_cache->used_expr_map->slots[slot_idx].last, n);
       break;
@@ -614,11 +615,12 @@ e_push_irtree_and_type_from_expr(Arena *arena, E_IRTreeAndType *root_parent, E_I
   {
     Task *next;
     E_Expr *expr;
+    E_TypeKey poison_type_key;
     E_AutoHookWildcardInst *first_wildcard_inst;
     E_AutoHookWildcardInst *last_wildcard_inst;
     E_IRTreeAndType *overridden;
   };
-  Task start_task = {0, root_expr, 0};
+  Task start_task = {0, root_expr};
   Task *first_task = &start_task;
   Task *last_task = first_task;
   for(Task *t = first_task; t != 0; t = t->next)
@@ -627,7 +629,7 @@ e_push_irtree_and_type_from_expr(Arena *arena, E_IRTreeAndType *root_parent, E_I
     E_IRTreeAndType *parent = t->overridden ? t->overridden : root_parent;
     
     //- rjf: poison the expression we are about to use, so we don't recursively use it
-    e_expr_poison(expr);
+    e_expr_poison(expr, t->poison_type_key);
     
     //- rjf: push stack elements
     E_AutoHookWildcardInst *first_wildcard_inst_restore = e_cache->first_wildcard_inst;
@@ -1733,6 +1735,15 @@ e_push_irtree_and_type_from_expr(Arena *arena, E_IRTreeAndType *root_parent, E_I
                 {
                   generated = 1;
                   result = e_push_irtree_and_type_from_expr(arena, parent, &e_default_identifier_resolution_rule, disallow_autohooks, 1, inst->inst_expr);
+                  if(!e_type_key_match(e_type_key_zero(), inst->type_key))
+                  {
+                    E_TypeKey result_type_key = e_type_key_unwrap(result.type_key, E_TypeUnwrapFlag_AllDecorative);
+                    if(e_type_key_match(e_type_key_zero(), result.type_key) ||
+                       e_type_byte_size_from_key(result_type_key) == 0)
+                    {
+                      result.type_key = inst->type_key;
+                    }
+                  }
                   break;
                 }
               }
@@ -2481,12 +2492,13 @@ e_push_irtree_and_type_from_expr(Arena *arena, E_IRTreeAndType *root_parent, E_I
       E_AutoHookMatchList matches = e_auto_hook_matches_from_type_key(result.type_key);
       for(E_AutoHookMatch *match = matches.first; match != 0; match = match->next)
       {
-        B32 e_is_poisoned = e_expr_is_poisoned(match->expr);
+        B32 e_is_poisoned = e_expr_is_poisoned(match->expr, result.type_key);
         if(!e_is_poisoned)
         {
           Task *task = push_array(scratch.arena, Task, 1);
           SLLQueuePush(first_task, last_task, task);
           task->expr = match->expr;
+          task->poison_type_key = result.type_key;
           task->first_wildcard_inst = match->first_wildcard_inst;
           task->last_wildcard_inst  = match->last_wildcard_inst;
           task->overridden = push_array(scratch.arena, E_IRTreeAndType, 1);
@@ -2503,7 +2515,7 @@ e_push_irtree_and_type_from_expr(Arena *arena, E_IRTreeAndType *root_parent, E_I
   //
   for(Task *t = first_task; t != 0; t = t->next)
   {
-    e_expr_unpoison(t->expr);
+    e_expr_unpoison(t->expr, t->poison_type_key);
   }
   
   //////////////////////////////

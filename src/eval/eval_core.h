@@ -701,6 +701,7 @@ struct E_AutoHookWildcardInst
   E_AutoHookWildcardInst *next;
   String8 name;
   E_Expr *inst_expr;
+  E_TypeKey type_key;
 };
 
 typedef struct E_AutoHookMatch E_AutoHookMatch;
@@ -945,6 +946,7 @@ struct E_UsedExprNode
   E_UsedExprNode *next;
   E_UsedExprNode *prev;
   E_Expr *expr;
+  E_TypeKey type_key;
 };
 
 typedef struct E_UsedExprSlot E_UsedExprSlot;
