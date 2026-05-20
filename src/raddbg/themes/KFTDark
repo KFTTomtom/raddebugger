@@ -10,8 +10,8 @@ theme_color: {tags:"good text",                              value: 0x4ec9b0ff }
 theme_color: {tags:"neutral text",                           value: 0x569cd6ff }
 theme_color: {tags:"bad text",                               value: 0xf44747ff }
 theme_color: {tags:"hover",                                  value: 0xffffffff }
-theme_color: {tags:"focus overlay",                          value: 0x0078d415 }
-theme_color: {tags:"focus border",                           value: 0x0078d4ff }
+theme_color: {tags:"focus overlay",                          value: 0x3a465818 }
+theme_color: {tags:"focus border",                           value: 0x3a465866 }
 theme_color: {tags:"cursor",                                 value: 0xaeafafff }
 theme_color: {tags:"selection",                              value: 0x264f7818 }
 theme_color: {tags:"inactive background",                    value: 0x0000002f }
@@ -34,14 +34,14 @@ theme_color: {tags:"code_numeric_alt_digit_group",           value: 0x8faf80ff }
 theme_color: {tags:"code_string",                            value: 0xd39881ff }
 theme_color: {tags:"code_meta",                              value: 0xac67c0ff }
 theme_color: {tags:"code_comment",                           value: 0x31864eff }
-theme_color: {tags:"line_info_0",                            value: 0x4f3022ff }
-theme_color: {tags:"line_info_1",                            value: 0x4f3e15ff }
-theme_color: {tags:"line_info_2",                            value: 0x434e2aff }
-theme_color: {tags:"line_info_3",                            value: 0x36241fff }
-theme_color: {tags:"line_info_4",                            value: 0x4f3022ff }
-theme_color: {tags:"line_info_5",                            value: 0x4f3e15ff }
-theme_color: {tags:"line_info_6",                            value: 0x434e2aff }
-theme_color: {tags:"line_info_7",                            value: 0x36241fff }
+theme_color: {tags:"line_info_0",                            value: 0x2a344055 }
+theme_color: {tags:"line_info_1",                            value: 0x303a4655 }
+theme_color: {tags:"line_info_2",                            value: 0x35404c55 }
+theme_color: {tags:"line_info_3",                            value: 0x2a303855 }
+theme_color: {tags:"line_info_4",                            value: 0x2a344055 }
+theme_color: {tags:"line_info_5",                            value: 0x303a4655 }
+theme_color: {tags:"line_info_6",                            value: 0x35404c55 }
+theme_color: {tags:"line_info_7",                            value: 0x2a303855 }
 theme_color: {tags:"thread_0",                               value: 0xffcb7fff }
 theme_color: {tags:"thread_1",                               value: 0xb2ff65ff }
 theme_color: {tags:"thread_2",                               value: 0xff99e5ff }
