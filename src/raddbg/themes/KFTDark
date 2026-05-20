@@ -67,9 +67,11 @@ theme_color: {tags:"implicit background",                    value: 0x00000000 }
 theme_color: {tags:"implicit border",                        value: 0x00000000 }
 theme_color: {tags:"hollow background",                      value: 0x00000000 }
 theme_color: {tags:"hollow border",                          value: 0xffffff12 }
-theme_color: {tags:"tab background",                         value: 0x1f1f1fff }
+theme_color: {tags:"tab background",                         value: 0x37373dff }
+theme_color: {tags:"tab text weak",                          value: 0x37373dff }
 theme_color: {tags:"tab border",                             value: 0x2b2b2bff }
-theme_color: {tags:"tab inactive background",                value: 0x181818ff }
+theme_color: {tags:"tab inactive background",                value: 0x1f1f1fff }
+theme_color: {tags:"tab inactive text",                      value: 0x37373dff }
 theme_color: {tags:"tab inactive border",                    value: 0x2b2b2bff }
 theme_color: {tags:"tab auto background",                    value: 0x2a2040ff }
 theme_color: {tags:"tab auto border",                        value: 0x3d3055ff }

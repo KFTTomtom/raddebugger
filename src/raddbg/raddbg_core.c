@@ -9484,7 +9484,7 @@ rd_theme_tree_from_name(Arena *arena, Access *access, String8 theme_name)
     }
     if(theme_tree == &md_nil_node)
     {
-      String8 path = str8f(scratch.arena, "%S/%Sraddbg/themes/%S", program_data_folder_prefix_from_os(OperatingSystem_CURRENT), get_process_info()->user_program_data_path, theme_name);
+      String8 path = str8f(scratch.arena, "%S/%Sraddbg/themes/%S", get_process_info()->user_program_data_path, program_data_folder_prefix_from_os(OperatingSystem_CURRENT), theme_name);
       U64 endt_us = now_time_us()+100;
       if(rd_state->frame_index <= 5)
       {
@@ -9492,7 +9492,10 @@ rd_theme_tree_from_name(Arena *arena, Access *access, String8 theme_name)
       }
       U128 hash = fs_hash_from_path_range(path, r1u64(0, max_U64), endt_us);
       String8 data = c_data_from_hash(access, hash);
-      theme_tree = md_tree_from_string(arena, data);
+      if(data.size != 0)
+      {
+        theme_tree = md_tree_from_string(arena, data);
+      }
     }
   }
   scratch_end(scratch);
