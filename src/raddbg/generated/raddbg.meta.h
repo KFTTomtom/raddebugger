@@ -520,8 +520,6 @@ struct RD_Query
 RD_QueryFlags flags;
 RD_RegSlot slot;
 String8 expr;
-String8 view_name;
-D_EntityKind ctrl_entity_kind;
 };
 
 typedef struct RD_CmdKindInfo RD_CmdKindInfo;
