@@ -167,6 +167,12 @@
 #endif
 
 #define BUILD_VERSION_STRING_LITERAL Stringify(BUILD_VERSION_MAJOR) "." Stringify(BUILD_VERSION_MINOR) "." Stringify(BUILD_VERSION_PATCH)
+
+// KFT fork version (Krafton additions on top of upstream)
+#define KFT_VERSION_MAJOR 0
+#define KFT_VERSION_MINOR 5
+#define KFT_VERSION_PATCH 0
+#define KFT_VERSION_STRING_LITERAL Stringify(KFT_VERSION_MAJOR) "." Stringify(KFT_VERSION_MINOR) "." Stringify(KFT_VERSION_PATCH)
 #if BUILD_DEBUG
 # define BUILD_MODE_STRING_LITERAL_APPEND " [Debug]"
 #else
