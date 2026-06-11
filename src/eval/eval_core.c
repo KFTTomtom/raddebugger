@@ -1346,6 +1346,7 @@ e_push_auto_hook_matches_from_type_key(Arena *arena, E_TypeKey type_key)
               U64 angle_nest_depth = 0;
               U64 brack_nest_depth = 0;
               U64 start_inst_off = scan_pos;
+              B32 has_named_wildcards = (part->wildcard_inst_names.first != 0);
               String8Node *wildcard_inst_name_node = part->wildcard_inst_names.first;
               for(B32 done = 0; !done && scan_pos < type_string.size; scan_pos += 1)
               {
@@ -1375,13 +1376,100 @@ e_push_auto_hook_matches_from_type_key(Arena *arena, E_TypeKey type_key)
                 {
                   String8 wildcard_inst_string = str8_skip_chop_whitespace(str8_substr(type_string, r1u64(start_inst_off, scan_pos)));
                   start_inst_off = scan_pos+1;
-                  E_AutoHookWildcardInst *inst = push_array(arena, E_AutoHookWildcardInst, 1);
-                  SLLQueuePush(first_wildcard_inst, last_wildcard_inst, inst);
-                  inst->name = wildcard_inst_name_node ? wildcard_inst_name_node->string : str8_zero();
-                  inst->inst_expr = e_parse_from_string(wildcard_inst_string).expr;
-                  if(wildcard_inst_name_node)
+                  if(wildcard_inst_string.size != 0 && (wildcard_inst_name_node != 0 || !has_named_wildcards))
                   {
-                    wildcard_inst_name_node = wildcard_inst_name_node->next;
+                    E_AutoHookWildcardInst *inst = push_array(arena, E_AutoHookWildcardInst, 1);
+                    SLLQueuePush(first_wildcard_inst, last_wildcard_inst, inst);
+                    inst->name = wildcard_inst_name_node ? wildcard_inst_name_node->string : str8_zero();
+                    inst->inst_expr = e_parse_from_string(wildcard_inst_string).expr;
+                    inst->type_key = e_type_key_zero();
+                    {
+                      DI_Match type_match = di_match_from_string(wildcard_inst_string, 0, 0, 0,
+                                                                  e_base_ctx->primary_dbg_info->dbgi_key, 0);
+                      if(type_match.idx != 0 && type_match.section_kind == RDI_SectionKind_TypeNodes)
+                      {
+                        Access *wc_access = access_open();
+                        RDI_Parsed *wc_rdi = di_rdi_from_key(wc_access, type_match.key, 0, 0);
+                        for EachIndex(wc_idx, e_base_ctx->dbg_infos_count)
+                        {
+                          if(e_base_ctx->dbg_infos[wc_idx].rdi == wc_rdi)
+                          {
+                            RDI_TypeNode *wc_type_node = rdi_element_from_name_idx(wc_rdi, TypeNodes, type_match.idx);
+                            inst->type_key = e_type_key_ext(e_type_kind_from_rdi(wc_type_node->kind), type_match.idx, (U32)wc_idx+1);
+                            break;
+                          }
+                        }
+                        access_close(wc_access);
+                      }
+                    }
+                    if(e_type_key_match(inst->type_key, e_type_key_zero()) && wildcard_inst_string.size > 0)
+                    {
+                      String8 short_type_name = wildcard_inst_string;
+                      for(U64 short_off = 0; short_off+1 < wildcard_inst_string.size; short_off += 1)
+                      {
+                        if(wildcard_inst_string.str[short_off] == ':' && wildcard_inst_string.str[short_off+1] == ':')
+                        {
+                          short_type_name = str8_skip(wildcard_inst_string, short_off+2);
+                          short_off += 1;
+                        }
+                      }
+                      if(short_type_name.size != wildcard_inst_string.size)
+                      {
+                        DI_Match type_match = di_match_from_string(short_type_name, 0, 0, 0,
+                                                                    e_base_ctx->primary_dbg_info->dbgi_key, 0);
+                        if(type_match.idx != 0 && type_match.section_kind == RDI_SectionKind_TypeNodes)
+                        {
+                          Access *wc_access = access_open();
+                          RDI_Parsed *wc_rdi = di_rdi_from_key(wc_access, type_match.key, 0, 0);
+                          for EachIndex(wc_idx, e_base_ctx->dbg_infos_count)
+                          {
+                            if(e_base_ctx->dbg_infos[wc_idx].rdi == wc_rdi)
+                            {
+                              RDI_TypeNode *wc_type_node = rdi_element_from_name_idx(wc_rdi, TypeNodes, type_match.idx);
+                              inst->type_key = e_type_key_ext(e_type_kind_from_rdi(wc_type_node->kind), type_match.idx, (U32)wc_idx+1);
+                              break;
+                            }
+                          }
+                          access_close(wc_access);
+                        }
+                      }
+                    }
+                    if(e_type_key_match(inst->type_key, e_type_key_zero()) && wildcard_inst_string.size > 0)
+                    {
+                      E_Type *parent_type = e_type_from_key(type_key);
+                      if(parent_type != 0 && parent_type->count > 0 && parent_type->members != 0)
+                      {
+                        for(U64 mi = 0; mi < parent_type->count && e_type_key_match(inst->type_key, e_type_key_zero()); mi += 1)
+                        {
+                          if(str8_match(parent_type->members[mi].name, str8_lit("ElementType"), 0))
+                          {
+                            E_TypeKey member_type_key = parent_type->members[mi].type_key;
+                            E_TypeKey unwrapped = member_type_key;
+                            for(U32 depth = 0; depth < 4; depth += 1)
+                            {
+                              E_TypeKind k = e_type_kind_from_key(unwrapped);
+                              if(k == E_TypeKind_Ptr || k == E_TypeKind_LRef || k == E_TypeKind_RRef ||
+                                 k == E_TypeKind_Array || k == E_TypeKind_Modifier || k == E_TypeKind_Alias)
+                              {
+                                unwrapped = e_type_key_direct(unwrapped);
+                              }
+                              else { break; }
+                            }
+                            E_TypeKind uwk = e_type_kind_from_key(unwrapped);
+                            if(uwk == E_TypeKind_Struct || uwk == E_TypeKind_Class ||
+                               uwk == E_TypeKind_Union  || uwk == E_TypeKind_Enum)
+                            {
+                              inst->type_key = unwrapped;
+                            }
+                            break;
+                          }
+                        }
+                      }
+                    }
+                    if(wildcard_inst_name_node)
+                    {
+                      wildcard_inst_name_node = wildcard_inst_name_node->next;
+                    }
                   }
                 }
                 if(done)
