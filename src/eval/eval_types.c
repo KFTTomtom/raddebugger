@@ -1,6 +1,8 @@
 // Copyright (c) Epic Games Tools
 // Licensed under the MIT license (https://opensource.org/license/mit/)
 
+#define KFT_EXTENSION
+
 ////////////////////////////////
 //~ rjf: Type Kind Enum Functions
 
@@ -1421,6 +1423,13 @@ e_type_data_members_from_key(Arena *arena, E_TypeKey key)
   return members;
 }
 
+////////////////////////////////
+//~ kft: Extensions
+
+#if defined(KFT_EXTENSION)
+#include "eval/kft_eval_types_extension.c"
+#endif
+
 internal E_TypeExpandRule *
 e_expand_rule_from_type_key(E_TypeKey key)
 {
@@ -1441,6 +1450,19 @@ e_expand_rule_from_type_key(E_TypeKey key)
         break;
       }
     }
+#if defined(KFT_EXTENSION)
+    if(rule == &e_type_expand_rule__default && e_type_kft_show_properties_like_vs())
+    {
+      E_TypeKey expand_type_key = e_default_expansion_type_from_key(key);
+      E_TypeKind expand_type_kind = e_type_kind_from_key(expand_type_key);
+      if(expand_type_kind == E_TypeKind_Struct ||
+         expand_type_kind == E_TypeKind_Class ||
+         expand_type_kind == E_TypeKind_Union)
+      {
+        rule = &e_type_expand_rule__kft_vs_properties;
+      }
+    }
+#endif
   }
   return rule;
 }

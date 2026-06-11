@@ -3661,10 +3661,13 @@ rd_view_ui(Rng2F32 rect)
                   //
                   RD_RegsScope(.module = row_info->module->handle) UI_Parent(row_box)
                   {
+                    B32 show_properties_like_vs = rd_setting_b32_from_name(str8_lit("show_properties_like_vs"));
+                    
                     ////////////////////
                     //- rjf: draw start of cache lines in expansions
                     //
-                    if(row->eval.space.kind == D_EvalSpaceKind_Entity && row_info->view_ui_rule == &rd_nil_view_ui_rule)
+                    // KFT: VS-like property display hides cache-line separators in object expansions.
+                    if(!show_properties_like_vs && row->eval.space.kind == D_EvalSpaceKind_Entity && row_info->view_ui_rule == &rd_nil_view_ui_rule)
                     {
                       D_Entity *space_entity = rd_ctrl_entity_from_eval_space(row->eval.space);
                       if(space_entity->kind == D_EntityKind_Process)
@@ -3685,7 +3688,8 @@ rd_view_ui(Rng2F32 rect)
                     //////////////
                     //- rjf: draw mid-row cache line boundaries in expansions
                     //
-                    if(row->eval.space.kind == D_EvalSpaceKind_Entity && row_info->view_ui_rule == &rd_nil_view_ui_rule)
+                    // KFT: VS-like property display hides cache-line separators in object expansions.
+                    if(!show_properties_like_vs && row->eval.space.kind == D_EvalSpaceKind_Entity && row_info->view_ui_rule == &rd_nil_view_ui_rule)
                     {
                       D_Entity *space_entity = rd_ctrl_entity_from_eval_space(row->eval.space);
                       if(space_entity->kind == D_EntityKind_Process &&
@@ -10757,11 +10761,11 @@ rd_init(CmdLine *cmdln)
   rd_state->num_frames_requested = 2;
   rd_state->seconds_until_autosave = 0.5f;
   rd_state->eval_cache = e_cache_alloc();
+  rd_natvis_init();
   for(U64 idx = 0; idx < ArrayCount(rd_state->cmds_arenas); idx += 1)
   {
     rd_state->cmds_arenas[idx] = arena_alloc();
   }
-  rd_natvis_init();
   rd_state->cmd_output_arena = arena_alloc();
   rd_state->popup_arena = arena_alloc();
   rd_state->ctx_menu_key = ui_key_from_string(ui_key_zero(), str8_lit("top_level_ctx_menu"));
@@ -12820,12 +12824,12 @@ rd_frame(void)
       }
     }
     
+    rd_natvis_register_auto_hooks(scratch.arena, all_modules, auto_hook_map);
+    
     ////////////////////////////
     //- rjf: build IR evaluation context
     //
     E_IRCtx *ir_ctx = push_array(scratch.arena, E_IRCtx, 1);
-    rd_natvis_register_auto_hooks(scratch.arena, all_modules, auto_hook_map);
-    
     {
       E_IRCtx *ctx = ir_ctx;
       ctx->regs_map       = d_string2reg_from_arch(arch);
@@ -12862,11 +12866,11 @@ rd_frame(void)
     rd_state->alt_menu_bar_enabled = rd_setting_b32_from_name(s("focus_menu_bar_with_alt"));
     rd_state->use_default_stl_type_views = rd_setting_b32_from_name(s("use_default_stl_type_views"));
     rd_state->use_default_ue_type_views = rd_setting_b32_from_name(s("use_default_ue_type_views"));
+    rd_natvis_update_settings();
     rd_state->auto_download_debug_info = rd_setting_b32_from_name(s("auto_download_debug_info"));
     rd_state->eval_viz_base_string_flags = 0;
     if(rd_setting_b32_from_name(s("display_pointer_addresses_before_contents")))
     {
-    rd_natvis_update_settings();
       rd_state->eval_viz_base_string_flags |= EV_StringFlag_AddressesBeforeContent;
     }
     if(!d_user_state->ctrl_is_running)
