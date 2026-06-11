@@ -5,6 +5,8 @@
 #define RADDBG_INC_H
 
 #include "raddbg_core.h"
+#include "../natvis/natvis_raddbg_hooks.h"
+#include "raddbg_preferences_hooks.h"
 #include "raddbg_eval.h"
 #include "raddbg_widgets.h"
 #include "raddbg_views.h"

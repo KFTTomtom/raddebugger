@@ -620,7 +620,7 @@ C_LINKAGE_BEGIN
 extern String8 rd_tab_fast_path_view_name_table[25];
 extern String8 rd_tab_fast_path_query_name_table[25];
 extern RD_VocabInfo rd_vocab_info_table[368];
-extern RD_NameSchemaInfo rd_name_schema_info_table[39];
+extern RD_NameSchemaInfo rd_name_schema_info_table[40];
 extern String8 rd_reg_slot_code_name_table[52];
 extern Rng1U64 rd_reg_slot_range_table[52];
 extern String8 rd_binding_version_remap_old_name_table[9];

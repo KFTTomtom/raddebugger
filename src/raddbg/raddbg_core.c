@@ -10761,6 +10761,7 @@ rd_init(CmdLine *cmdln)
   {
     rd_state->cmds_arenas[idx] = arena_alloc();
   }
+  rd_natvis_init();
   rd_state->cmd_output_arena = arena_alloc();
   rd_state->popup_arena = arena_alloc();
   rd_state->ctx_menu_key = ui_key_from_string(ui_key_zero(), str8_lit("top_level_ctx_menu"));
@@ -12823,6 +12824,8 @@ rd_frame(void)
     //- rjf: build IR evaluation context
     //
     E_IRCtx *ir_ctx = push_array(scratch.arena, E_IRCtx, 1);
+    rd_natvis_register_auto_hooks(scratch.arena, all_modules, auto_hook_map);
+    
     {
       E_IRCtx *ctx = ir_ctx;
       ctx->regs_map       = d_string2reg_from_arch(arch);
@@ -12863,6 +12866,7 @@ rd_frame(void)
     rd_state->eval_viz_base_string_flags = 0;
     if(rd_setting_b32_from_name(s("display_pointer_addresses_before_contents")))
     {
+    rd_natvis_update_settings();
       rd_state->eval_viz_base_string_flags |= EV_StringFlag_AddressesBeforeContent;
     }
     if(!d_user_state->ctrl_is_running)
