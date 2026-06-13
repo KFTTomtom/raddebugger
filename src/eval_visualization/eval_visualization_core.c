@@ -1520,14 +1520,33 @@ ev_string_iter_next(Arena *arena, EV_StringIter *it, String8 *out_string)
     String8 expansion_opener_symbol = str8_lit("{");
     String8 expansion_closer_symbol = str8_lit("}");
     
+#if defined(KFT_EVAL_VISUALIZATION_EXTENSION)
+    //- kft: auto-hook and default value summaries
+    if(depth == 0 &&
+       (params->flags & EV_StringFlag_ReadOnlyDisplayRules) &&
+       !(params->flags & EV_StringFlag_DisableAutoHookSummaries) &&
+       eval.irtree.auto_hook_summary_string.size != 0)
+    {
+      *out_string = kft_ev_string_from_auto_hook_summary(arena, params, eval, eval.irtree.auto_hook_summary_string);
+    }
+    else if(depth == 0 &&
+            (params->flags & EV_StringFlag_ReadOnlyDisplayRules) &&
+            !(params->flags & EV_StringFlag_DisableAutoHookSummaries))
+    {
+      *out_string = kft_ev_string_from_default_struct_summary(arena, params, eval);
+    }
+#endif
+    
     //- rjf: type evaluations -> display type string
-    if(eval.irtree.mode == E_Mode_Null && !e_type_key_match(e_type_key_zero(), eval.irtree.type_key))
+    if(out_string->size == 0 &&
+       eval.irtree.mode == E_Mode_Null &&
+       !e_type_key_match(e_type_key_zero(), eval.irtree.type_key))
     {
       *out_string = e_type_string_from_key(arena, type_key);
     }
     
     //- rjf: non-type evaluations
-    else switch(type_kind)
+    else if(out_string->size == 0) switch(type_kind)
     {
       //////////////////////////
       //- rjf: default - leaf cases
@@ -1821,6 +1840,9 @@ ev_string_iter_next(Arena *arena, EV_StringIter *it, String8 *out_string)
           B32 did_redirect;
           B32 did_pre_prefix_ptr;
           B32 addr_is_good;
+#if defined(KFT_EVAL_VISUALIZATION_EXTENSION)
+          B32 is_unreal_object_ptr_or_ref;
+#endif
         };
         EV_StringPtrData *ptr_data = it->top_task->user_data;
         if(ptr_data == 0)
@@ -1833,6 +1855,9 @@ ev_string_iter_next(Arena *arena, EV_StringIter *it, String8 *out_string)
           ptr_data->ptee_has_string  = ((E_TypeKind_Char8 <= ptr_data->direct_type->kind && ptr_data->direct_type->kind <= E_TypeKind_UChar32) ||
                                         ptr_data->direct_type->kind == E_TypeKind_S8 ||
                                         ptr_data->direct_type->kind == E_TypeKind_U8);
+#if defined(KFT_EVAL_VISUALIZATION_EXTENSION)
+          ptr_data->is_unreal_object_ptr_or_ref = kft_ev_type_key_is_unreal_object_pointer_or_ref(type_key);
+#endif
           U8 byte = 0;
           U64 byte_bad_flags = 0;
           E_SpaceRangeInfo range_info = {.byte_bad_flags = &byte_bad_flags};
@@ -1856,7 +1881,13 @@ ev_string_iter_next(Arena *arena, EV_StringIter *it, String8 *out_string)
           //- rjf: step 0: do pre-prefix pointer value if requested
           case 0:
           {
-            if(!(params->flags & EV_StringFlag_DisableAddresses) && params->flags & EV_StringFlag_AddressesBeforeContent)
+            B32 force_pointer_address_first = 0;
+#if defined(KFT_EVAL_VISUALIZATION_EXTENSION)
+            force_pointer_address_first = kft_ev_pointer_should_emit_address_first(params, type_kind);
+#endif
+            if(!(params->flags & EV_StringFlag_DisableAddresses) &&
+               (force_pointer_address_first ||
+                params->flags & EV_StringFlag_AddressesBeforeContent))
             {
               Temp scratch = scratch_begin(&arena, 1);
               String8 ptr_value_string = str8_from_u64(scratch.arena, ptr_data->value_eval.value.u64,
@@ -1865,7 +1896,24 @@ ev_string_iter_next(Arena *arena, EV_StringIter *it, String8 *out_string)
               {
                 ptr_value_string = str8f(scratch.arena, "%S (unmapped)", ptr_value_string);
               }
-              *out_string = str8_copy(arena, ptr_value_string);
+#if defined(KFT_EVAL_VISUALIZATION_EXTENSION)
+              if(force_pointer_address_first)
+              {
+                if(ptr_data->value_eval.value.u64 != 0)
+                {
+                  *out_string = kft_ev_string_from_pointer_properties(arena, params, eval, ptr_value_string, ptr_data->is_unreal_object_ptr_or_ref);
+                }
+                else
+                {
+                  *out_string = str8_copy(arena, ptr_value_string);
+                }
+                ptr_data->did_prefix_content = 1;
+              }
+              else
+#endif
+              {
+                *out_string = str8_copy(arena, ptr_value_string);
+              }
               ptr_data->did_pre_prefix_ptr = 1;
               scratch_end(scratch);
             }
@@ -2157,7 +2205,11 @@ ev_string_iter_next(Arena *arena, EV_StringIter *it, String8 *out_string)
             
             // rjf: [read only] if we did *not* do any prefix content, but we have content,
             // do "<pointer value> -> " then descend
-            else if(!ptr_data->did_pre_prefix_ptr && params->flags & EV_StringFlag_ReadOnlyDisplayRules && !ptr_data->did_prefix_content && ptr_data->ptee_has_content)
+            else if(
+#if defined(KFT_EVAL_VISUALIZATION_EXTENSION)
+                    kft_ev_pointer_should_descend_inline(type_kind) &&
+#endif
+                    !ptr_data->did_pre_prefix_ptr && params->flags & EV_StringFlag_ReadOnlyDisplayRules && !ptr_data->did_prefix_content && ptr_data->ptee_has_content)
             {
               if(!(params->flags & EV_StringFlag_DisableAddresses))
               {

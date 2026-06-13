@@ -792,7 +792,7 @@ RD_VocabTable:
   //- rjf: @schema type_view
   {
     type_view, 0,
-    ```@collection_commands(add_type_view) @row_commands(remove_cfg) x:{'type':expr_string, 'expr':expr_string}```,
+    ```@collection_commands(add_type_view) @row_commands(remove_cfg) x:{'type':expr_string, 'expr':expr_string, 'summary':expr_string}```,
   }
   
   //- rjf: @schema natvis_path

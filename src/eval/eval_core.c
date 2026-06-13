@@ -511,6 +511,7 @@ e_auto_hook_map_insert_new_(Arena *arena, E_AutoHookMap *map, E_AutoHookParams *
     node->type_string = str8_skip_chop_whitespace(e_type_string_from_key(arena, type_key));
     node->type_pattern = pattern;
     node->expr_string = push_str8_copy(arena, params->tag_expr_string);
+    node->summary_string = push_str8_copy(arena, params->summary_string);
     if(!e_type_key_match(e_type_key_zero(), type_key))
     {
       U64 hash = e_hash_from_string(5381, node->type_string);
@@ -1298,6 +1299,7 @@ e_push_auto_hook_matches_from_type_key(Arena *arena, E_TypeKey type_key)
           E_AutoHookMatch *match = push_array(arena, E_AutoHookMatch, 1);
           SLLQueuePush(matches.first, matches.last, match);
           match->expr = e_parse_from_string(n->expr_string).expr;
+          match->summary_string = n->summary_string;
           matches.count += 1;
         }
       }
@@ -1506,6 +1508,7 @@ e_push_auto_hook_matches_from_type_key(Arena *arena, E_TypeKey type_key)
           E_AutoHookMatch *match = push_array(arena, E_AutoHookMatch, 1);
           SLLQueuePush(matches.first, matches.last, match);
           match->expr = e_parse_from_string(auto_hook_node->expr_string).expr;
+          match->summary_string = auto_hook_node->summary_string;
           match->first_wildcard_inst = first_wildcard_inst;
           match->last_wildcard_inst = last_wildcard_inst;
           matches.count += 1;

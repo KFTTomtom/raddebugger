@@ -616,6 +616,7 @@ e_push_irtree_and_type_from_expr(Arena *arena, E_IRTreeAndType *root_parent, E_I
     Task *next;
     E_Expr *expr;
     E_TypeKey poison_type_key;
+    String8 summary_string;
     E_AutoHookWildcardInst *first_wildcard_inst;
     E_AutoHookWildcardInst *last_wildcard_inst;
     E_IRTreeAndType *overridden;
@@ -1813,6 +1814,7 @@ e_push_irtree_and_type_from_expr(Arena *arena, E_IRTreeAndType *root_parent, E_I
               result.type_key = parent_irtree->type_key;
               result.mode = parent_irtree->mode;
               result.auto_hook = parent_irtree->auto_hook;
+              result.auto_hook_summary_string = parent_irtree->auto_hook_summary_string;
               E_MsgList msgs = e_msg_list_copy(arena, &parent_irtree->msgs);
               e_msg_list_concat_in_place(&result.msgs, &msgs);
               result.prev = parent_irtree->prev;
@@ -2556,6 +2558,7 @@ e_push_irtree_and_type_from_expr(Arena *arena, E_IRTreeAndType *root_parent, E_I
     if(t->overridden)
     {
       result.auto_hook = 1;
+      result.auto_hook_summary_string = t->summary_string;
     }
     
     //- rjf: restore stack elements
@@ -2575,6 +2578,7 @@ e_push_irtree_and_type_from_expr(Arena *arena, E_IRTreeAndType *root_parent, E_I
           SLLQueuePush(first_task, last_task, task);
           task->expr = match->expr;
           task->poison_type_key = result.type_key;
+          task->summary_string = match->summary_string;
           task->first_wildcard_inst = match->first_wildcard_inst;
           task->last_wildcard_inst  = match->last_wildcard_inst;
           task->overridden = push_array(scratch.arena, E_IRTreeAndType, 1);

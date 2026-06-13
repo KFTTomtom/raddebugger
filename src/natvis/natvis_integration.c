@@ -254,7 +254,8 @@ nv_build_auto_hook_map_from_cached_hooks(NV_State *state)
     if(h->tag_expr.size == 0 || h->tag_expr.str == 0) { continue; }
     e_auto_hook_map_insert_new(state->hook_map_arena, &state->natvis_auto_hook_map,
       .type_pattern = h->pattern,
-      .tag_expr_string = h->tag_expr);
+      .tag_expr_string = h->tag_expr,
+      .summary_string = h->summary_expr);
   }
   state->natvis_auto_hook_map_valid = 1;
 }
@@ -426,7 +427,8 @@ nv_register_auto_hooks(NV_State *state, Arena *arena, E_AutoHookMap *auto_hook_m
     if(h->pattern.size == 0 || h->tag_expr.size == 0) { continue; }
     e_auto_hook_map_insert_new(arena, auto_hook_map,
       .type_pattern = h->pattern,
-      .tag_expr_string = h->tag_expr);
+      .tag_expr_string = h->tag_expr,
+      .summary_string = h->summary_expr);
   }
 }
 

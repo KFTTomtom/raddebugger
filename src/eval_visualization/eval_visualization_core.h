@@ -235,6 +235,9 @@ enum
   EV_StringFlag_DisableStringQuotes          = (1<<5),
   EV_StringFlag_AddressesBeforeContent       = (1<<6),
   EV_StringFlag_DisplayAddressUnmappedStatus = (1<<7),
+#if defined(KFT_EVAL_VISUALIZATION_EXTENSION)
+  EV_StringFlag_DisableAutoHookSummaries     = (1<<8),
+#endif
 };
 
 typedef struct EV_StringParams EV_StringParams;

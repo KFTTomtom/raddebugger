@@ -324,6 +324,7 @@ struct E_IRTreeAndType
   void *user_data;
   E_Mode mode;
   B32 auto_hook;
+  String8 auto_hook_summary_string;
   E_MsgList msgs;
   E_IRTreeAndType *prev;
 };
@@ -712,6 +713,7 @@ struct E_AutoHookMatch
 {
   E_AutoHookMatch *next;
   E_Expr *expr;
+  String8 summary_string;
   E_AutoHookWildcardInst *first_wildcard_inst;
   E_AutoHookWildcardInst *last_wildcard_inst;
 };
@@ -732,6 +734,7 @@ struct E_AutoHookNode
   String8 type_string;
   E_Pattern type_pattern;
   String8 expr_string;
+  String8 summary_string;
 };
 
 typedef struct E_AutoHookSlot E_AutoHookSlot;
@@ -756,6 +759,7 @@ struct E_AutoHookParams
   E_TypeKey type_key;
   String8 type_pattern;
   String8 tag_expr_string;
+  String8 summary_string;
 };
 
 ////////////////////////////////

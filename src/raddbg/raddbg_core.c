@@ -12762,6 +12762,7 @@ rd_frame(void)
         B32 ue;
         String8 pattern;
         String8 expr;
+        String8 summary;
       }
       type_views[] =
       {
@@ -12781,6 +12782,10 @@ rd_frame(void)
         { 0, 1, str8_lit_comp("FNameEntryId"),               str8_lit_comp("*(cast(FNameEntry *)(&GNameBlocksDebug[Value >> 16][8 * (Value & 0xFFFF)]))") },
         { 0, 1, str8_lit_comp("TObjectPtr<?>"),              str8_lit_comp("DebugPtr") },
         { 0, 1, str8_lit_comp("FColor"),                     str8_lit_comp("hex(color(Bits))") },
+        { 0, 1, str8_lit_comp("FVector"),                    str8_lit_comp("$"), str8_lit_comp("X=X, Y=Y, Z=Z") },
+        { 0, 1, str8_lit_comp("FVector3f"),                  str8_lit_comp("$"), str8_lit_comp("X=X, Y=Y, Z=Z") },
+        { 0, 1, str8_lit_comp("FVector3d"),                  str8_lit_comp("$"), str8_lit_comp("X=X, Y=Y, Z=Z") },
+        { 0, 1, str8_lit_comp("UE::Math::TVector<?>"),       str8_lit_comp("$"), str8_lit_comp("X=X, Y=Y, Z=Z") },
       };
       if(rd_state->use_default_stl_type_views)
       {
@@ -12793,8 +12798,10 @@ rd_frame(void)
             CFG_Node *type_view = cfg_node_child_from_string_or_alloc(rd_state->cfg, immediate_root, str8_lit("type_view"));
             CFG_Node *type = cfg_node_child_from_string_or_alloc(rd_state->cfg, type_view, str8_lit("type"));
             CFG_Node *expr = cfg_node_child_from_string_or_alloc(rd_state->cfg, type_view, str8_lit("expr"));
+            CFG_Node *summary = cfg_node_child_from_string_or_alloc(rd_state->cfg, type_view, str8_lit("summary"));
             cfg_node_new_replace(rd_state->cfg, type, type_views[idx].pattern);
             cfg_node_new_replace(rd_state->cfg, expr, type_views[idx].expr);
+            cfg_node_new_replace(rd_state->cfg, summary, type_views[idx].summary);
             cfg_node_ptr_list_push(scratch.arena, &immediate_type_views, type_view);
           }
         }
@@ -12819,7 +12826,9 @@ rd_frame(void)
           CFG_Node *rule = n->v;
           String8 type_string = cfg_node_child_from_string(rule, str8_lit("type"))->first->string;
           String8 expr_string = cfg_node_child_from_string(rule, str8_lit("expr"))->first->string;
-          e_auto_hook_map_insert_new(scratch.arena, auto_hook_map, .type_pattern = type_string, .tag_expr_string = expr_string);
+          CFG_Node *summary = cfg_node_child_from_string(rule, str8_lit("summary"));
+          String8 summary_string = summary->first ? summary->first->string : str8_zero();
+          e_auto_hook_map_insert_new(scratch.arena, auto_hook_map, .type_pattern = type_string, .tag_expr_string = expr_string, .summary_string = summary_string);
         }
       }
     }
