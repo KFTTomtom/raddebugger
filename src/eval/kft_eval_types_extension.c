@@ -124,6 +124,12 @@ e_type_kft_vs_properties_accel_from_key(Arena *arena, E_TypeKey key)
 internal E_Eval
 e_type_kft_eval_from_vs_property_item(Arena *arena, E_Eval parent_eval, E_KFTVSPropertyItem *item)
 {
+  if(item->kind == E_KFTVSPropertyItemKind_Field)
+  {
+    E_Eval result = e_eval_wrapf(parent_eval, "$.%S", item->name);
+    return result;
+  }
+  
   E_Eval result = parent_eval;
   U64 vaddr = parent_eval.value.u64 + item->off;
   String8 key_string = push_str8f(arena, "kft_vs_%I64x_%S", item->id, item->name);

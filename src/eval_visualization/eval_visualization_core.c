@@ -1533,7 +1533,11 @@ ev_string_iter_next(Arena *arena, EV_StringIter *it, String8 *out_string)
             (params->flags & EV_StringFlag_ReadOnlyDisplayRules) &&
             !(params->flags & EV_StringFlag_DisableAutoHookSummaries))
     {
-      *out_string = kft_ev_string_from_default_struct_summary(arena, params, eval);
+      *out_string = kft_ev_string_from_ffloat16(arena, params, eval);
+      if(out_string->size == 0)
+      {
+        *out_string = kft_ev_string_from_default_struct_summary(arena, params, eval);
+      }
     }
 #endif
     
