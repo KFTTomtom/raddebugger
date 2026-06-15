@@ -1885,11 +1885,21 @@ ev_string_iter_next(Arena *arena, EV_StringIter *it, String8 *out_string)
           //- rjf: step 0: do pre-prefix pointer value if requested
           case 0:
           {
+            B32 kft_did_scalar_ref = 0;
             B32 force_pointer_address_first = 0;
 #if defined(KFT_EVAL_VISUALIZATION_EXTENSION)
+            String8 scalar_ref_string = kft_ev_string_from_scalar_ref(arena, params, eval, type_key, type_kind);
+            if(scalar_ref_string.size != 0)
+            {
+              *out_string = scalar_ref_string;
+              ptr_data->did_prefix_content = 1;
+              ptr_data->did_pre_prefix_ptr = 1;
+              kft_did_scalar_ref = 1;
+            }
             force_pointer_address_first = kft_ev_pointer_should_emit_address_first(params, type_kind);
 #endif
-            if(!(params->flags & EV_StringFlag_DisableAddresses) &&
+            if(!kft_did_scalar_ref &&
+               !(params->flags & EV_StringFlag_DisableAddresses) &&
                (force_pointer_address_first ||
                 params->flags & EV_StringFlag_AddressesBeforeContent))
             {

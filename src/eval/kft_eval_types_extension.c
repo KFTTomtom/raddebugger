@@ -11,7 +11,10 @@ e_type_kft_show_properties_like_vs(void)
 internal B32
 e_type_kft_member_name_is_padding_noise(String8 name)
 {
-  B32 result = (str8_match(str8_prefix(name, 10), str8_lit("$padding_"), 0) ||
+  B32 result = (str8_match(name, str8_lit("$.padding"), 0) ||
+                str8_match(name, str8_lit("$padding"), 0) ||
+                str8_match(name, str8_lit("padding"), 0) ||
+                str8_match(str8_prefix(name, 10), str8_lit("$padding_"), 0) ||
                 str8_match(str8_prefix(name, 8), str8_lit("padding_"), 0));
   return result;
 }

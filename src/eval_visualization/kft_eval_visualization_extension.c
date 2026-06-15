@@ -499,6 +499,30 @@ kft_ev_pointer_should_descend_inline(E_TypeKind type_kind)
   return result;
 }
 
+internal String8
+kft_ev_string_from_scalar_ref(Arena *arena, EV_StringParams *params, E_Eval eval, E_TypeKey type_key, E_TypeKind type_kind)
+{
+  String8 result = {0};
+  if((params->flags & EV_StringFlag_ReadOnlyDisplayRules) &&
+     (type_kind == E_TypeKind_LRef ||
+      type_kind == E_TypeKind_RRef))
+  {
+    E_TypeKey direct_type_key = e_type_key_unwrap(e_type_key_direct(type_key), E_TypeUnwrapFlag_AllDecorative);
+    E_TypeKind direct_type_kind = e_type_kind_from_key(direct_type_key);
+    if(e_type_kind_is_basic_or_enum(direct_type_kind))
+    {
+      EV_StringParams value_params = *params;
+      value_params.flags |= EV_StringFlag_DisableAutoHookSummaries;
+      E_Eval deref_eval = e_eval_wrapf(eval, "*$");
+      if(deref_eval.msgs.max_kind == E_MsgKind_Null)
+      {
+        result = ev_value_string_from_eval(arena, &value_params, deref_eval, 256);
+      }
+    }
+  }
+  return result;
+}
+
 internal U64
 kft_ev_top_level_pos_from_string(String8 string, U8 needle)
 {
@@ -717,11 +741,25 @@ kft_ev_string_from_default_struct_summary(Arena *arena, EV_StringParams *params,
           str8_list_push(scratch.arena, &strings, value_string);
         }
         else if(e_type_kind_is_basic_or_enum(member_type_kind) ||
-           e_type_kind_is_pointer_or_ref(member_type_kind))
+                e_type_kind_is_pointer_or_ref(member_type_kind))
         {
           EV_StringParams value_params = *params;
           value_params.flags |= EV_StringFlag_DisableAutoHookSummaries;
           E_Eval member_eval = e_eval_wrapf(eval, "$.%S", member->name);
+          if(member_type_kind == E_TypeKind_LRef ||
+             member_type_kind == E_TypeKind_RRef)
+          {
+            E_TypeKey direct_type_key = e_type_key_unwrap(e_type_key_direct(unwrapped_type_key), E_TypeUnwrapFlag_AllDecorative);
+            E_TypeKind direct_type_kind = e_type_kind_from_key(direct_type_key);
+            if(e_type_kind_is_basic_or_enum(direct_type_kind))
+            {
+              E_Eval deref_member_eval = e_eval_wrapf(eval, "*($.%S)", member->name);
+              if(deref_member_eval.msgs.max_kind == E_MsgKind_Null)
+              {
+                member_eval = deref_member_eval;
+              }
+            }
+          }
           String8 value_string = ev_value_string_from_eval(scratch.arena, &value_params, member_eval, 256);
           str8_list_push(scratch.arena, &strings, value_string);
         }
