@@ -483,9 +483,61 @@ kft_ev_string_from_ue_math_type(Arena *arena, EV_StringParams *params, E_Eval ev
 }
 
 internal B32
-kft_ev_pointer_should_emit_address_first(EV_StringParams *params, E_TypeKind type_kind)
+kft_ev_type_kind_is_text_code_unit(E_TypeKind type_kind)
+{
+  B32 result = ((E_TypeKind_Char8 <= type_kind && type_kind <= E_TypeKind_UChar32) ||
+                type_kind == E_TypeKind_S8 ||
+                type_kind == E_TypeKind_U8);
+  return result;
+}
+
+internal B32
+kft_ev_type_key_is_text_code_unit(E_TypeKey type_key)
+{
+  E_TypeKey unwrapped_type_key = e_type_key_unwrap(type_key, E_TypeUnwrapFlag_AllDecorative);
+  E_TypeKind type_kind = e_type_kind_from_key(unwrapped_type_key);
+  B32 result = kft_ev_type_kind_is_text_code_unit(type_kind);
+  return result;
+}
+
+internal B32
+kft_ev_type_key_is_text_storage(E_TypeKey type_key)
+{
+  B32 result = 0;
+  E_TypeKey unwrapped_type_key = e_type_key_unwrap(type_key, E_TypeUnwrapFlag_AllDecorative);
+  E_TypeKind type_kind = e_type_kind_from_key(unwrapped_type_key);
+  if(type_kind == E_TypeKind_Array ||
+     type_kind == E_TypeKind_Ptr ||
+     type_kind == E_TypeKind_LRef ||
+     type_kind == E_TypeKind_RRef)
+  {
+    E_TypeKey direct_type_key = e_type_key_direct(unwrapped_type_key);
+    result = kft_ev_type_key_is_text_code_unit(direct_type_key);
+  }
+  return result;
+}
+
+internal String8
+kft_ev_string_from_text_storage(Arena *arena, EV_StringParams *params, E_Eval eval)
+{
+  String8 result = {0};
+  E_TypeKey type_key = e_type_key_unwrap(eval.irtree.type_key, E_TypeUnwrapFlag_AllDecorative);
+  if((params->flags & EV_StringFlag_ReadOnlyDisplayRules) &&
+     kft_ev_type_key_is_text_storage(type_key))
+  {
+    EV_StringParams value_params = *params;
+    value_params.flags |= EV_StringFlag_DisableAutoHookSummaries;
+    value_params.flags |= EV_StringFlag_DisableAddresses;
+    result = ev_value_string_from_eval(arena, &value_params, eval, 256);
+  }
+  return result;
+}
+
+internal B32
+kft_ev_pointer_should_emit_address_first(EV_StringParams *params, E_TypeKey type_key, E_TypeKind type_kind)
 {
   B32 result = ((params->flags & EV_StringFlag_ReadOnlyDisplayRules) &&
+                !kft_ev_type_key_is_text_storage(type_key) &&
                 (type_kind == E_TypeKind_Ptr ||
                  type_kind == E_TypeKind_LRef ||
                  type_kind == E_TypeKind_RRef));
@@ -622,7 +674,11 @@ kft_ev_string_from_auto_hook_summary(Arena *arena, EV_StringParams *params, E_Ev
     EV_StringParams value_params = *params;
     value_params.flags |= EV_StringFlag_DisableAutoHookSummaries;
     E_Eval summary_eval = e_eval_wrap(eval, expr);
-    String8 value_string = kft_ev_string_from_ffloat16_member(scratch.arena, &value_params, eval, expr);
+    String8 value_string = kft_ev_string_from_text_storage(scratch.arena, &value_params, summary_eval);
+    if(value_string.size == 0)
+    {
+      value_string = kft_ev_string_from_ffloat16_member(scratch.arena, &value_params, eval, expr);
+    }
     if(value_string.size == 0)
     {
       value_string = kft_ev_string_from_ffloat16(scratch.arena, &value_params, summary_eval);
@@ -634,7 +690,11 @@ kft_ev_string_from_auto_hook_summary(Arena *arena, EV_StringParams *params, E_Ev
     if(value_string.size == 0 && expr.size != 0 && expr.str[0] != '$')
     {
       E_Eval member_summary_eval = e_eval_wrapf(eval, "$.%S", expr);
-      value_string = kft_ev_string_from_ffloat16(scratch.arena, &value_params, member_summary_eval);
+      value_string = kft_ev_string_from_text_storage(scratch.arena, &value_params, member_summary_eval);
+      if(value_string.size == 0)
+      {
+        value_string = kft_ev_string_from_ffloat16(scratch.arena, &value_params, member_summary_eval);
+      }
       if(value_string.size == 0)
       {
         value_string = ev_value_string_from_eval(scratch.arena, &value_params, member_summary_eval, 256);
@@ -728,11 +788,16 @@ kft_ev_string_from_default_struct_summary(Arena *arena, EV_StringParams *params,
         
         E_TypeKey unwrapped_type_key = e_type_key_unwrap(member->type_key, E_TypeUnwrapFlag_AllDecorative);
         E_TypeKind member_type_kind = e_type_kind_from_key(unwrapped_type_key);
-        if(kft_ev_type_key_matches_ffloat16_name(unwrapped_type_key))
+        EV_StringParams value_params = *params;
+        value_params.flags |= EV_StringFlag_DisableAutoHookSummaries;
+        E_Eval member_eval = e_eval_wrapf(eval, "$.%S", member->name);
+        String8 text_value_string = kft_ev_string_from_text_storage(scratch.arena, &value_params, member_eval);
+        if(text_value_string.size != 0)
         {
-          EV_StringParams value_params = *params;
-          value_params.flags |= EV_StringFlag_DisableAutoHookSummaries;
-          E_Eval member_eval = e_eval_wrapf(eval, "$.%S", member->name);
+          str8_list_push(scratch.arena, &strings, text_value_string);
+        }
+        else if(kft_ev_type_key_matches_ffloat16_name(unwrapped_type_key))
+        {
           String8 value_string = kft_ev_string_from_ffloat16_member(scratch.arena, &value_params, eval, member->name);
           if(value_string.size == 0)
           {
@@ -743,9 +808,6 @@ kft_ev_string_from_default_struct_summary(Arena *arena, EV_StringParams *params,
         else if(e_type_kind_is_basic_or_enum(member_type_kind) ||
                 e_type_kind_is_pointer_or_ref(member_type_kind))
         {
-          EV_StringParams value_params = *params;
-          value_params.flags |= EV_StringFlag_DisableAutoHookSummaries;
-          E_Eval member_eval = e_eval_wrapf(eval, "$.%S", member->name);
           if(member_type_kind == E_TypeKind_LRef ||
              member_type_kind == E_TypeKind_RRef)
           {

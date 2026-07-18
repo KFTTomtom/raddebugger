@@ -1896,7 +1896,7 @@ ev_string_iter_next(Arena *arena, EV_StringIter *it, String8 *out_string)
               ptr_data->did_pre_prefix_ptr = 1;
               kft_did_scalar_ref = 1;
             }
-            force_pointer_address_first = kft_ev_pointer_should_emit_address_first(params, type_kind);
+            force_pointer_address_first = kft_ev_pointer_should_emit_address_first(params, type_key, type_kind);
 #endif
             if(!kft_did_scalar_ref &&
                !(params->flags & EV_StringFlag_DisableAddresses) &&
