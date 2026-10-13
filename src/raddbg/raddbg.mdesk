@@ -265,6 +265,8 @@ RD_VocabTable:
       //- rjf: auto eval
       @display_name('Show Auto Watches In Source / Disassembly') @description("Enables the display of auto watch expressions inline in source and disassembly views.") @default(1)
         'show_autos_in_src_and_disasm': bool,
+      @display_name('Show properties like VS') @description("Groups object properties by declaring class and hides debugger-noise padding/cache-line rows.") @default(0)
+        'show_properties_like_vs': bool,
       
       //- rjf: autocompletion
       @display_name('Autocompletion Lister') @description("Enables the autocompletion lister while typing expressions.") @default(1)
@@ -870,7 +872,7 @@ RD_VocabTable:
   //- rjf: @schema type_view
   {
     type_view, 0,
-    ```@collection_commands(add_type_view) @row_commands(remove_cfg) x:{'type':expr_string, 'expr':expr_string}```,
+    ```@collection_commands(add_type_view) @row_commands(remove_cfg) x:{'type':expr_string, 'expr':expr_string, 'summary':expr_string}```,
   }
   
   //- rjf: @schema recent_project

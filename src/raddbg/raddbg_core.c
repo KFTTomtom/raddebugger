@@ -3810,10 +3810,12 @@ rd_view_ui(Rng2F32 rect)
                   //
                   RD_RegsScope(.module = row_info->module->handle) UI_Parent(row_box)
                   {
+                    B32 show_properties_like_vs = rd_setting_b32_from_name(str8_lit("show_properties_like_vs"));
+                    
                     ////////////////////
                     //- rjf: draw start of cache lines in expansions
                     //
-                    if(row->eval.space.kind == D_EvalSpaceKind_Entity && row_info->view_ui_rule == &rd_nil_view_ui_rule)
+                    if(!show_properties_like_vs && row->eval.space.kind == D_EvalSpaceKind_Entity && row_info->view_ui_rule == &rd_nil_view_ui_rule)
                     {
                       D_Entity *space_entity = rd_ctrl_entity_from_eval_space(row->eval.space);
                       if(space_entity->kind == D_EntityKind_Process)
@@ -3834,7 +3836,7 @@ rd_view_ui(Rng2F32 rect)
                     //////////////
                     //- rjf: draw mid-row cache line boundaries in expansions
                     //
-                    if(row->eval.space.kind == D_EvalSpaceKind_Entity && row_info->view_ui_rule == &rd_nil_view_ui_rule)
+                    if(!show_properties_like_vs && row->eval.space.kind == D_EvalSpaceKind_Entity && row_info->view_ui_rule == &rd_nil_view_ui_rule)
                     {
                       D_Entity *space_entity = rd_ctrl_entity_from_eval_space(row->eval.space);
                       if(space_entity->kind == D_EntityKind_Process &&
@@ -5509,7 +5511,7 @@ rd_push_window_title(Arena *arena)
     prof_path = str8_chop_last_dot(prof_path);
     project_name = str8_skip_last_slash(prof_path);
   }
-  String8 result = str8f(arena, "%S%s%s", project_name, project_name.size != 0 ? " - " : "", BUILD_TITLE " (" BUILD_VERSION_STRING_LITERAL " " BUILD_RELEASE_PHASE_STRING_LITERAL ")");
+  String8 result = str8f(arena, "%S%s%s KFT " KFT_VERSION_STRING_LITERAL, project_name, project_name.size != 0 ? " - " : "", BUILD_TITLE " (" BUILD_VERSION_STRING_LITERAL " " BUILD_RELEASE_PHASE_STRING_LITERAL ")");
   return result;
 }
 
@@ -10372,7 +10374,10 @@ rd_theme_tree_from_name(Arena *arena, Access *access, String8 theme_name)
       }
       U128 hash = fs_hash_from_path_range(path, r1u64(0, max_U64), endt_us);
       String8 data = c_data_from_hash(access, hash);
-      theme_tree = md_tree_from_string(arena, data);
+      if(data.size != 0)
+      {
+        theme_tree = md_tree_from_string(arena, data);
+      }
     }
   }
   scratch_end(scratch);
@@ -13311,6 +13316,7 @@ rd_frame(void)
         B32 ue;
         String8 pattern;
         String8 expr;
+        String8 summary;
       }
       type_views[] =
       {
@@ -13325,10 +13331,15 @@ rd_frame(void)
         { 0, 1, str8_lit_comp("TArray<?{element_type}>"),    str8_lit_comp("array(cast(element_type *)AllocatorInstance.Data, ArrayNum)") },
         { 0, 1, str8_lit_comp("TSharedRef<?>"),              str8_lit_comp("Object") },
         { 0, 1, str8_lit_comp("TRefCountPtr<?>"),            str8_lit_comp("Reference") },
+        { 0, 1, str8_lit_comp("FName"),                      str8_lit_comp("ComparisonIndex") },
         { 0, 1, str8_lit_comp("FNameEntry"),                 str8_lit_comp("AnsiName, Header.Len") },
-        { 0, 1, str8_lit_comp("FNameEntryId"),               str8_lit_comp("*(cast(FNameEntry *)(&GNameBlocksDebug[Value >> FNameDebugVisualizer::OffsetBits][FNameDebugVisualizer::EntryStride * (Value & FNameDebugVisualizer::OffsetMask)]))") },
+        { 0, 1, str8_lit_comp("FNameEntryId"),               str8_lit_comp("*(cast(FNameEntry *)(&GNameBlocksDebug[Value >> 16][8 * (Value & 0xFFFF)]))") },
         { 0, 1, str8_lit_comp("TObjectPtr<?>"),              str8_lit_comp("DebugPtr") },
         { 0, 1, str8_lit_comp("FColor"),                     str8_lit_comp("hex(color(Bits))") },
+        { 0, 1, str8_lit_comp("FVector"),                    str8_lit_comp("$"), str8_lit_comp("X=X, Y=Y, Z=Z") },
+        { 0, 1, str8_lit_comp("FVector3f"),                  str8_lit_comp("$"), str8_lit_comp("X=X, Y=Y, Z=Z") },
+        { 0, 1, str8_lit_comp("FVector3d"),                  str8_lit_comp("$"), str8_lit_comp("X=X, Y=Y, Z=Z") },
+        { 0, 1, str8_lit_comp("UE::Math::TVector<?>"),       str8_lit_comp("$"), str8_lit_comp("X=X, Y=Y, Z=Z") },
       };
       if(rd_state->use_default_stl_type_views)
       {
@@ -13341,8 +13352,10 @@ rd_frame(void)
             CFG_Node *type_view = cfg_node_child_from_string_or_alloc(rd_state->cfg, immediate_root, str8_lit("type_view"));
             CFG_Node *type = cfg_node_child_from_string_or_alloc(rd_state->cfg, type_view, str8_lit("type"));
             CFG_Node *expr = cfg_node_child_from_string_or_alloc(rd_state->cfg, type_view, str8_lit("expr"));
+            CFG_Node *summary = cfg_node_child_from_string_or_alloc(rd_state->cfg, type_view, str8_lit("summary"));
             cfg_node_new_replace(rd_state->cfg, type, type_views[idx].pattern);
             cfg_node_new_replace(rd_state->cfg, expr, type_views[idx].expr);
+            cfg_node_new_replace(rd_state->cfg, summary, type_views[idx].summary);
             cfg_node_ptr_list_push(scratch.arena, &immediate_type_views, type_view);
           }
         }
@@ -13367,7 +13380,9 @@ rd_frame(void)
           CFG_Node *rule = n->v;
           String8 type_string = cfg_node_child_from_string(rule, str8_lit("type"))->first->string;
           String8 expr_string = cfg_node_child_from_string(rule, str8_lit("expr"))->first->string;
-          e_auto_hook_map_insert_new(scratch.arena, auto_hook_map, .type_pattern = type_string, .tag_expr_string = expr_string);
+          CFG_Node *summary = cfg_node_child_from_string(rule, str8_lit("summary"));
+          String8 summary_string = summary->first ? summary->first->string : str8_zero();
+          e_auto_hook_map_insert_new(scratch.arena, auto_hook_map, .type_pattern = type_string, .tag_expr_string = expr_string, .summary_string = summary_string);
         }
       }
     }
