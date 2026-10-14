@@ -757,6 +757,13 @@ kft_ev_string_from_default_struct_summary(Arena *arena, EV_StringParams *params,
   {
     return result;
   }
+  //- kft: a member value is stringified with this flag set so the line stays one level deep.
+  // Pointer properties call this summary again for the pointee and were ignoring the flag,
+  // so a struct of pointers expanded 8-wide at every depth and never returned.
+  if(params->flags & EV_StringFlag_DisableAutoHookSummaries)
+  {
+    return result;
+  }
   if(e_type_kft_show_properties_like_vs() &&
      !e_type_kind_is_pointer_or_ref(original_type_kind))
   {
